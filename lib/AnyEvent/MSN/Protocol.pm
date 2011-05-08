@@ -19,17 +19,17 @@ package AnyEvent::MSN::Protocol 0.001;
             my ($cmd, $tid, @data) = split qr[\s+], $line;
             my $method = $s->can('_handle_packet_' . lc($cmd));
             $method ||= sub { ouch 110, 'Unhandled command type: ' . $cmd };
-            if ($cmd eq 'GCF') {    # payload types
+            if ($cmd =~ m[^(?:GCF|MSG)$]) {    # payload types
                 warn '>> ' . $line . ' [...]';
                 $handle->unshift_read(
-                    chunk => $data[0],
-                    sub {
-                        $s->$method($tid, @data,
+                    chunk => $data[-1], # GFC:0, MSG:2
+                    sub {$s->$method($tid, @data,
+                                    $cmd =~ m[GCF] ?
                                     XML::Simple::XMLin(
                                                      $_[1],
                                                      KeyAttr => [qw[type id]],
                                                      ValueAttr => ['value']
-                                    )
+                                    ): $_[1]
                         );
                     }
                 );
