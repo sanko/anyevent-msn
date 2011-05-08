@@ -11,6 +11,7 @@ package AnyEvent::MSN 0.001;
     use AnyEvent::MSN::Protocol;
     use MIME::Base64 qw[];
     use XML::Simple qw[];
+    use Ouch;
     use Data::Dump;
 
     # Basic connection info
@@ -118,10 +119,16 @@ package AnyEvent::MSN 0.001;
     );
     sub _build_connect_queue { [] }
     has sock => (is        => 'ro',
-                 isa       => 'Object',
+                 isa       => 'AnyEvent::Util::guard',
                  predicate => '_has_sock',
                  writer    => '_set_sock',
                  clearer   => '_reset_sock'
+    );
+    has handle => (is        => 'ro',
+                   isa       => 'AnyEvent::Handle',
+                   predicate => '_has_handle',
+                   writer    => '_set_handle',
+                   clearer   => '_reset_handle'
     );
     has soap => (is        => 'ro',
                  isa       => 'Object',
@@ -209,11 +216,11 @@ package AnyEvent::MSN 0.001;
                         };
 
                     #
-                    $s->_set_sock(
+                    $s->_set_handle(
                         AnyEvent::Handle->new(
                             fh => $fh,
 
-                            #on_connect => sub { $s->sock = $s->sock },
+                            #on_connect => sub { $s->handle = $s->handle },
                             on_drain => sub { },
                             on_error => sub {
                                 $_[0]->destroy;
@@ -233,6 +240,7 @@ package AnyEvent::MSN 0.001;
 
                     #
                     $s->_negotiate_protocol_version;
+                    $s->handle->push_read('AnyEvent::MSN::Protocol' => $s);
 
                     #
                     $s->_set_cmd_cb(
@@ -257,108 +265,53 @@ package AnyEvent::MSN 0.001;
 
     sub _negotiate_protocol_version {
         my $s = shift;
-        $s->sock->push_write('AnyEvent::MSN::Protocol' => 'VER %d %s',
-                             $s->tid, $s->protocol_version);
-        $s->sock->push_read(
-            'AnyEvent::MSN::Protocol' => sub {
-                my ($tid, $r) = @_;
-                $s->_set_protocol_version($r);
-                $s->_send_client_info;
-            }
-        );
+        $s->handle->push_write('AnyEvent::MSN::Protocol' => 'VER %d %s',
+                               $s->tid, $s->protocol_version);
+
+        # Expect VER ... in reply
     }
 
     sub _send_client_info {
         my $s = shift;
         my ($protver) = ($s->protocol_version =~ m[MSNP(\d+)]);
-        $s->sock->push_write(
+        $s->handle->push_write(
               'AnyEvent::MSN::Protocol' => 'CVR %d %s %s %s %s %s %s %s %s%s',
               $s->tid, $s->locale_id, $s->os_type, $s->os_ver, $s->arch,
               $s->client_name, $s->client_version, $s->client_string,
               $s->username, ($protver >= 21 ? ' ' . $s->redirect : '')
         );
+    }
 
-        #- Continue authentication
-        $s->sock->push_read(
-            'AnyEvent::MSN::Protocol' => sub {
-                my ($tid, $r, $min_a, $min_b, $url_dl, $url_info) = @_;
+    sub _handle_packet_cvr {    #- Continue authentication
+        my $s = shift;
+        my ($cmd, $tid, $r, $min_a, $min_b, $url_dl, $url_info) = @_;
 
-                # We don't do anything with this yet but...
-                # The first parameter is a recommended version of
-                # the client for you to use, or "1.0.0000" if your
-                #   client information is not recognised.
-                # The second parameter is identical to the first.
-                # The third parameter is the minimum version of the
-                #   client it's safe for you to use, or the current
-                #   version if your client information is not
-                #   recognised.
-                # The fourth parameter is a URL you can download the
-                #   recommended version of the client from.
-                # The fifth parameter is a URL the user can go to to
-                #   get more information about the client.
-                $s->_send_passport;    # For the first time
-                return 1;              # remove from queue
-            }
-        );
-        return 1;
+        # We don't do anything with this yet but...
+        # The first parameter is a recommended version of
+        # the client for you to use, or "1.0.0000" if your
+        #   client information is not recognised.
+        # The second parameter is identical to the first.
+        # The third parameter is the minimum version of the
+        #   client it's safe for you to use, or the current
+        #   version if your client information is not
+        #   recognised.
+        # The fourth parameter is a URL you can download the
+        #   recommended version of the client from.
+        # The fifth parameter is a URL the user can go to to
+        #   get more information about the client.
+        $s->_send_passport;    # For the first time
     }
 
     sub _send_passport {
         my $s = shift;
-        $s->sock->push_write('AnyEvent::MSN::Protocol' => 'USR %d SSO I %s',
-                             $s->tid, $s->username);
-        $s->_expect_policy;
-    }
+        $s->handle->push_write('AnyEvent::MSN::Protocol' => 'USR %d SSO I %s',
+                               $s->tid, $s->username);
 
-    sub _expect_policy {
-        my $s = shift;
-        $s->sock->push_read(
-            'AnyEvent::MSN::Protocol' => sub {
-                my ($tid, $r, $addr, $U, $D, $redirect) = @_;
-
-                #$s->croak($$r)
-                #if ref($r)
-                #&& UNIVERSAL::isa($r,
-                #'AnyEvent::MSN::Error');
-                if ($tid == 0) {    # probably Policy list
-                    $s->_set_policy($_[1]{Policy});
-                    for (@{  $s->policy->{SHIELDS}{config}{block}{regexp}
-                                 {imtext}
-                         }
-                        )
-                    {   my $regex = MIME::Base64::decode_base64($_);
-
-                        #warn 'Blocking ' . qr[$regex];
-                    }
-                    $s->_expect_token;
-                }
-                else {
-                    $s->cleanup('being redirected', 1);
-                    $s->_set_redirect($redirect);
-                    my ($host, $port) = ($addr =~ m[^(.+):(\d+)$]);
-                    $s->_set_host($host);
-                    $s->_set_port($port);
-                    $s->connect();
-                }
-                return 1;
-            }
-        );
-    }
-
-    sub _expect_token {
-        my $s = shift;
-        my ($sso, $_s, $policy, $nonce);
-        $s->sock->push_read(
-            'AnyEvent::MSN::Protocol' => sub {
-                ($sso, $_s, $policy, $nonce) = @_;
-                $s->_init_soap($sso, $_s, $policy, $nonce);
-                return 1;
-            }
-        );
+        #$s->_expect_policy;
     }
 
     sub _init_soap {
-        my ($s, $sso, $_s, $policy, $nonce) = @_;
+        my ($s, $policy, $nonce) = @_;
         my $x = 0;
         my $sites = join '', map {
             sprintf <<'END', $x++, @$_ } @{$s->SSOsites};
@@ -390,6 +343,8 @@ END
                 },
                 timeout    => 30,
                 persistent => 1,
+
+                # XXX - XML::Simple generates XML MSN doesn't like. Ideas?
                 body => sprintf( <<'END', $s->username, $s->password, $sites),
 <?xml version="1.0" encoding="UTF-8"?>
 <Envelope   xmlns="http://schemas.xmlsoap.org/soap/envelope/"
@@ -449,7 +404,7 @@ END
                 $token_ =~ s/>/&gt;/sg;
                 $token_ =~ s/"/&quot;/sg;
                 my ($protver) = ($s->protocol_version =~ m[MSNP(\d+)]);
-                $s->sock->push_write(
+                $s->handle->push_write(
                           'AnyEvent::MSN::Protocol' => 'USR %d SSO S %s %s%s',
                           $s->tid,
                           $token->{'wst:RequestedSecurityToken'}
@@ -473,28 +428,73 @@ END
     #
     sub _expect_OK {    # Login complete?
         my $s = shift;
-        $s->sock->push_read(
-            'AnyEvent::MSN::Protocol' => sub {
-                ...;
-            }
-        );
-        $s->sock->push_read(
-            'AnyEvent::MSN::Protocol' => sub {
 
-                # XXX - Expect: USR %d OK %s@%s 1 0
-                $s->sock->push_read(
-                    'AnyEvent::MSN::Protocol' => sub {
+#$s->handle->push_read(
+#    'AnyEvent::MSN::Protocol' => sub {
+#        #...;
+#        #$s->handle->push_write(
+#        #'AnyEvent::MSN::Protocol' =>
+#        #    'QRY %d %s 32\r\n%s', $s->tid, $s->product_id, '19628948c65320d8468204e6c0f668b4'
+#    #);
+#    return 1
+#    }
+#);
+    }
 
-                        # XXX - Expect: CHL 0 xxxxxxxx
-                        $s->sock->push_write(
-                                  'AnyEvent::MSN::Protocol' => 'QRY %d %s 32',
-                                  $s->tid, $s->username);
-                        ...;
-                    }
-                );
-                return 1;
+    sub _handle_packet_chl {
+        my $s = shift;
+        $s->handle->push_write('AnyEvent::MSN::Protocol' => 'QRY %d %s 32',
+                               $s->tid, $s->username);
+    }
+
+    sub _handle_packet_gcf {
+        my ($s, $tid, $len, $r) = @_;
+        if ($tid == 0) {    # probably Policy list
+            $s->_set_policy($r->{Policy});
+            for (@{$s->policy->{SHIELDS}{config}{block}{regexp}{imtext}}) {
+                my $regex = MIME::Base64::decode_base64($_);
+
+                #warn 'Blocking ' . qr[$regex];
             }
-        );
+
+            # Expect USR Token
+        }
+        else {
+            ...;
+        }
+    }
+
+    sub _handle_packet_usr {
+        my ($s, $tid, $subtype, $_s, $policy, $nonce) = @_;
+        if ($subtype eq 'SSO') {
+            $s->_init_soap($policy, $nonce);
+        }
+        elsif ($subtype eq 'OK') {
+
+            # XXX - logged in okay. What now?
+        }
+        else {
+            ...;
+        }
+    }
+
+    sub _handle_packet_ver {
+        my ($s, $tid, $r) = @_;
+        $s->_set_protocol_version($r);
+        $s->_send_client_info;
+    }
+
+    sub _handle_packet_xfr {
+        my $s = shift;
+        my ($tid, $type, $addr, $u, $d, $redirect) = @_;
+        $s->cleanup('being redirected', 1);
+        $s->handle->push_write('OUT');
+        $s->handle->destroy;
+        $s->_set_redirect($redirect);
+        my ($host, $port) = ($addr =~ m[^(.+):(\d+)$]);
+        $s->_set_host($host);
+        $s->_set_port($port);
+        $s->connect();
     }
 
     #
