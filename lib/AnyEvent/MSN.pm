@@ -464,6 +464,11 @@ END
         }
     }
 
+    sub _handle_packet_sbs {
+        my $s = shift;
+        # No one seems to know what this is. The official client ignores it.
+    }
+
     sub _handle_packet_usr {
         my ($s, $tid, $subtype, $_s, $policy, $nonce) = @_;
         if ($subtype eq 'SSO') {
