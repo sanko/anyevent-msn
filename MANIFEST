@@ -1,0 +1,8 @@
+Build.PL
+Changes
+examples/client.pl
+lib/AnyEvent/MSN.pm
+lib/AnyEvent/MSN/Protocol.pm
+MANIFEST			This list of files
+META.yml
+META.json
