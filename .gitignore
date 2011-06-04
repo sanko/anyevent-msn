@@ -50,6 +50,8 @@ MANIFEST.SKIP
 *.bak
 commitlog.txt
 git.pod
+*.LOG
+Untitled.*
 
 # FLTK's source (currently) isn't mirrored on github. This may change in the
 #   future.
