@@ -12,59 +12,14 @@ package AnyEvent::MSN::Protocol 0.001;
     use Crypt::CBC qw[];
     use XML::Simple;
 
-    sub anyevent_read_type {    # Non-traditional args
+    sub anyevent_read_type {
         my ($handle, $s) = @_;
         sub {
             return if !length $handle->{rbuf};
             $handle->{rbuf} =~ s[^([^\015\012]*)\015?\012][] or return;
             my $line = $1;
-            my ($cmd, $tid, @data) = split qr[\s+], $line;
-            my $method = $s->can('_handle_packet_' . lc($cmd));
-            $method ||= sub { ouch 110, 'Unhandled command type: ' . $cmd };
-            if ($cmd =~ m[^(?:GCF|MSG|NFY|NOT|SDG|UBX)$]) {    # payload types
-                warn 'I: ' . $line . ' [...]';
-                $handle->unshift_read(
-                    chunk => $data[-1] // $tid,                # GFC:0, MSG:2
-                    sub {
-                        $s->$method(
-                            $tid, @data,
-                            $cmd =~ m[GCF]
-                            ? XML::Simple::XMLin($_[1],
-                                                 KeyAttr   => [qw[type id]],
-                                                 ValueAttr => ['value']
-                                )
-                            : $cmd =~ m[(?:MSG|NFY|SDG)] ? sub {
-                                state $hp //= sub {
-                                    {
-                                        map { split qr[\s*:\s*], $_, 2 }
-                                            split qr[\015?\012],
-                                            shift
-                                    }
-                                };
-                                my ($h1, $h2, $h3, $body) =
-                                    split qr[\015?\012\015?\012], shift, 4;
-                                ({map { $hp->($_) }
-                                      grep { defined && length } $h1,
-                                  $h2,
-                                  $h3
-                                 },
-                                 $body
-                                );
-                                }
-                                ->($_[1])
-                            : $_[1]
-                        );
-                    }
-                );
-            }
-            elsif ($cmd =~ m[^\d+$]) {    # Error!
-                warn 'I: ' . $line;
-                ouch $cmd, err2str($cmd, @data);
-            }
-            else {
-                warn 'I: ' . $line;
-                $s->$method($tid, @data);
-            }
+            warn 'I: ' . $line;
+            $s->(split qr[\s+], $line);    # my ($cmd, $tid, @data)
             $handle->push_read(__PACKAGE__, $s);    # Re-queue
             return 1                                # But remove this one
             }
@@ -77,6 +32,22 @@ package AnyEvent::MSN::Protocol 0.001;
         return $out . ($out =~ m[^(QRY|UUX|ADL|PUT|SDG)] ? '' : "\015\012");
     }
 
+    sub __parse_msn_headers {
+        state $hp //= sub {
+            map { split qr[\s*:\s*], $_, 2 }
+                split qr[\015?\012],
+                shift;
+        };
+        my ($h1, $h2, $h3, $body) =
+            split qr[\015?\012\015?\012], shift, 4;
+        ({map { $hp->($_) }
+          grep { defined && length } $h1, $h2, $h3
+         },
+         $body
+        );
+    }
+
+    # Auth stuff
     sub derive_key {
         my ($key, $magic) = @_;
         $magic = 'WS-SecureConversationSESSION KEY ' . $magic;

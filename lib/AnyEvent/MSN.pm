@@ -12,6 +12,7 @@ package AnyEvent::MSN 0.001;
     use XML::Twig;
     use AnyEvent::MSN::Protocol;
     use MIME::Base64 qw[];
+    use Scalar::Util qw[];
 
     # XXX - During dev only
     use Data::Dump;
@@ -145,6 +146,7 @@ package AnyEvent::MSN 0.001;
         handles   => {
             send => sub {
                 my $s = shift;
+                Scalar::Util::weaken($s);
                 $s->handle->push_write('AnyEvent::MSN::Protocol' => @_)
                     if $s->_has_handle;    # XXX - Else mention it...
                 }
@@ -221,7 +223,7 @@ package AnyEvent::MSN 0.001;
         default => sub {
             sub {1}
         },
-        handles => {'trigger_' . $_ => 'execute',},
+        handles => {'trigger_' . $_ => 'execute'},
         )
         for qw[im nudge
         error connect];
@@ -235,6 +237,7 @@ package AnyEvent::MSN 0.001;
 
     sub connect {
         my ($s, $r) = @_;
+        Scalar::Util::weaken($s);
         $r = " $r" if length $r;
         $s->_set_handle(
             AnyEvent::Handle->new(
@@ -242,7 +245,42 @@ package AnyEvent::MSN 0.001;
                 on_connect => sub {
 
                     # Get ready to read data from server
-                    $s->handle->push_read('AnyEvent::MSN::Protocol' => $s);
+                    $s->handle->push_read(
+                        'AnyEvent::MSN::Protocol' => sub {
+                            my ($cmd, $tid, @data) = @_;
+                            my $method =
+                                $s->can('_handle_packet_' . lc($cmd));
+                            $method ||= sub {
+                                $s->trigger_error('Unhandled command type: ' . $cmd,0);
+                            };
+                            if ($cmd =~ m[^(?:GCF|MSG|NFY|NOT|SDG|UBX)$])
+                            {    # payload types
+                                $s->handle->unshift_read(
+                                    chunk => $data[-1] // $tid, # GFC:0, MSG:2
+                                    sub {
+                                        $s->$method(
+                                                 $tid, @data,
+                                                 $cmd =~ m[GCF]
+                                                 ? XML::Simple::XMLin(
+                                                     $_[1],
+                                                     KeyAttr => [qw[type id]],
+                                                     ValueAttr => ['value']
+                                                     )
+                                                 : $cmd =~ m[(?:MSG|NFY|SDG)]
+                                                 ? AnyEvent::MSN::Protocol::__parse_msn_headers($_[1])
+                                                 : $_[1]
+                                        );
+                                    }
+                                );
+                            }
+                            elsif ($cmd =~ m[^\d+$]) {    # Error!
+                                $s->trigger_error(AnyEvent::MSN::Protocol::err2str($cmd, @data));
+                            }
+                            else {
+                                $s->$method($tid, @data);
+                            }
+                        }
+                    );
 
                     # Send version negotiation and basic client info
                     $s->send('VER %d %s CVR0', $s->tid, $s->protocol_version);
