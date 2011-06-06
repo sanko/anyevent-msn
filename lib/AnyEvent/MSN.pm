@@ -802,20 +802,23 @@ XML
                     $xml = $xml_twig->simplify;
                 }
                 catch {
-                    warn "caught error: $_";         # not $@
-                    $xml = {};
+                    $s->trigger_error(qq[During SOAP request $_], 1);                  $xml = {};
                 };
+                        $s->_del_soap_request($uri );
+
                 return $cb->($xml)
-                    if $hdr->{Status} =~ /^2/
-                        && !defined $xml->{'soap:Body'}{'soap:Fault'};
-                ouch $hdr->{Status},
-                    $xml->{'soap:Body'}{'soap:Fault'}{'soap:Reason'}
-                    {'soap:Text'}{'content'}
-                    // $xml->{'soap:Body'}{'soap:Fault'}{'faultstring'}
-                    // $hdr->{Reason};
+                    if $hdr->{Status} =~ /^2/ && !defined $xml->{'S:Fault'};
+                ddx $hdr;
+                $s->trigger_error(
+                    $xml->{'S:Fault'}{'soap:Reason'}{'soap:Text'}{'content'}
+                        // $xml->{'S:Fault'}{'faultstring'} // $hdr->{Reason},
+                    1
+                );
+
             }
-        );
-    }
+        )
+          );
+     }
 
     # Methods exposed publicly
     sub disconnect {    # cleanly disconnect from switchboard
