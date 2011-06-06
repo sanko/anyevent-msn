@@ -8,7 +8,7 @@ $|++;
 my ($user, $pass) = @ARGV;    # XXX - Better to use a GetOpt-like module
 my $msn;
 $msn = AnyEvent::MSN->new(
-    passport => $user, # XXX - I may change the name of this arg before pause
+    passport => $user,  # XXX - I may change the name of this arg before pause
     password => $pass,
 
     # Extra user info
@@ -17,7 +17,7 @@ $msn = AnyEvent::MSN->new(
     personalmessage => 'This can\'t be life!',
 
     # Basic events
-    on_im => sub {            # Simple Ping/Pong bot
+    on_im => sub {      # Simple Ping/Pong bot
         my ($head, $body) = @_;
         printf qq'%-40s> %s\n', $head->{From}, $body;
         $msn->im($head->{From}, 'Pong!') if $body eq 'Ping?';
@@ -27,5 +27,10 @@ $msn = AnyEvent::MSN->new(
         warn $head->{From} . ' just nudged us';
         $msn->nudge($head->{From});
     },
+    on_error => sub {
+        my ($msg, $fatal) = @_;
+        warn ucfirst sprintf '%serror: %s', ($fatal ? 'fatal ' : ''), $msg;
+        $msn = () if $fatal;
+    }
 );
 AnyEvent->condvar->recv;
