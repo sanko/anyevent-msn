@@ -243,19 +243,15 @@ package AnyEvent::MSN 0.001;
                                 $s->handle->unshift_read(
                                     chunk => $data[-1] // $tid, # GFC:0, MSG:2
                                     sub {
+                                        my ($_h, $_c) = @_;
                                         $s->$method(
                                             $tid, @data,
                                             $cmd =~ m[GCF]
-                                            ? XML::Simple::XMLin(
-                                                     $_[1],
-                                                     KeyAttr => [qw[type id]],
-                                                     ValueAttr => ['value']
-                                                )
+                                            ? $s->_parse_xml($_c)
                                             : $cmd =~ m[(?:MSG|NFY|SDG)]
                                             ? AnyEvent::MSN::Protocol::__parse_msn_headers(
-                                                                         $_[1]
-                                                )
-                                            : $_[1]
+                                                                          $_c)
+                                            : $_c
                                         );
                                     }
                                 );
@@ -399,11 +395,7 @@ package AnyEvent::MSN 0.001;
         #ddx $type, $len, $headers, $data;
         given ($type) {
             when ('PUT') {
-                my $xml = XML::Twig->new()->parse($data)->root->simplify
-                    if $data;
-
-                #ddx $xml;
-                ##########
+                my $xml = $s->_parse_xml($data);
                 if ((!defined $headers->{By})
                     && $headers->{From} eq '1:' . $s->passport)
                 {    # Without guid
@@ -825,8 +817,7 @@ XML
 
     sub _handle_packet_ubx {    # Buddy has changed something
         my ($s, $passport, $len, $payload) = @_;
-        my $xml = XML::Twig->new()->parse($payload)->root->simplify
-            if $payload;
+        my $xml = $s->_parse_xml($payload);
         if ($len == 0 && $passport eq '1:' . $s->passport) {
         }
         else {
@@ -884,16 +875,7 @@ XML
                 body       => $content,
                 sub {
                     my ($body, $hdr) = @_;
-                    state $xml_twig //= XML::Twig->new();
-                    $xml_twig->parse($body) if $body;    # build it
-                    my $xml;
-                    try {
-                        $xml = $xml_twig->simplify;
-                    }
-                    catch {
-                        $s->trigger_error(qq[During SOAP request $_], 1);
-                        $xml = {};
-                    };
+                    my $xml = $s->_parse_xml($body);
                     $s->_del_soap_request($uri);
                     return $cb->($xml)
                         if $hdr->{Status} =~ /^2/
@@ -985,6 +967,23 @@ XML
             $s->passport, $s->guid, length($body), $body;
         $s->send("PUT %d %d\r\n%s", $s->tid, length($out), $out);
     };
+
+    # Random private methods
+    sub _parse_xml {
+        my $s = shift;
+        state $xml_twig //= XML::Twig->new();
+        $xml_twig->parse(shift);    # build it
+        my $xml;
+        try {
+            $xml = $xml_twig->simplify(keyattr  => [qw[type id]],
+                                       var_attr => ['value']);
+        }
+        catch {
+            $s->trigger_error(qq[parsing XML: $_], 1);
+            $xml = {};
+        };
+        $xml;
+    }
 
     # Non-OOP utility functions
     sub __html_escape {
