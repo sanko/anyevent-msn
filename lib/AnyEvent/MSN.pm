@@ -574,22 +574,12 @@ XML
                         push @{$contacts{$domain}}, $user;
                     }
                 }
-                my $data = sprintf '<ml>
-    %s
-</ml>', join '', map {
-                    sprintf '<d n="%s">
-        %s
-    </d>', $_, join '', map {
-                        sprintf '<c n="%s" t="1">
-            <s l="3" n="IM" />
-            <s l="3" n="PE" />
-            <s l="3" n="PF" />
-        </c>', $_
+                my $data = sprintf '<ml l="1">%s</ml>', join '', map {
+                    sprintf '<d n="%s">%s</d>', $_, join '', map {
+                        sprintf '<c n="%s" t="1"><s l="3" n="IM" /><s l="3" n="PE" /><s l="3" n="PF" /></c>', $_
                         } sort @{$contacts{$_}}
                 } sort keys %contacts;
-                $s->send("ADL %d %d\r\n%s", $s->tid, length($data), $data);
-
-                #...
+                 $s->send("ADL %d %d\r\n%s", $s->tid, length($data), $data)
             }
         );
     }
