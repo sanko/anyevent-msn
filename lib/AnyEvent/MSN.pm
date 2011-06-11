@@ -13,6 +13,8 @@ package AnyEvent::MSN 0.001;
     use AnyEvent::MSN::Protocol;
     use MIME::Base64 qw[];
     use Scalar::Util qw[];
+    our $DEBUG = 0;
+    sub DEBUG {$DEBUG}
 
     # XXX - During dev only
     use Data::Dump;
@@ -228,7 +230,7 @@ package AnyEvent::MSN 0.001;
         default => sub {
             sub {1}
         },
-        handles => {'trigger_' . $_ => 'execute'},
+        handles => {'trigger_' . $_ => 'execute_method'},
         )
         for qw[im nudge
         error connect];
