@@ -16,7 +16,12 @@ package AnyEvent::MSN 0.001;
 
     # XXX - During dev only
     use Data::Dump;
-    sub DEMOLISH { my $s = shift; $s->handle->destroy if $s->_has_handle && $s->handle;$s->_clear_soap_requests }
+
+    sub DEMOLISH {
+        my $s = shift;
+        $s->handle->destroy if $s->_has_handle && $s->handle;
+        $s->_clear_soap_requests;
+    }
 
     # Basic connection info
     has host => (is      => 'ro',
@@ -887,8 +892,15 @@ XML
     }
 
     # SOAP client
-    has soap_requests => (isa =>'HashRef[AnyEvent::Util::guard]',traits=>['Hash'], handles =>{_add_soap_request=>'set', _del_soap_request => 'delete', _clear_soap_requests => 'clear' } )
-;    sub soap_request {
+    has soap_requests => (isa     => 'HashRef[AnyEvent::Util::guard]',
+                          traits  => ['Hash'],
+                          handles => {_add_soap_request    => 'set',
+                                      _del_soap_request    => 'delete',
+                                      _clear_soap_requests => 'clear'
+                          }
+    );
+
+    sub soap_request {
         my ($s, $uri, $headers, $content, $cb) = @_;
         my %headers = ('user-agent' => 'MSNPM 1.0',
                        'content-type' =>
