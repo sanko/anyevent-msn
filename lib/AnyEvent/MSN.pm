@@ -1035,6 +1035,19 @@ XML
 
 AnyEvent::MSN - Exactly what you're expecting...
 
+=head1 Synopsis
+
+    use AnyEvent::MSN;
+    my $msn = AnyEvent::MSN->new(
+        passport => 'you@hotmail.com',
+        password => 'sekrit',
+        on_im => sub { # Simiple echo bot
+            my ($msn, $head, $body) = @_;
+            $msn->im($head->{From}, $body)
+        }
+    );
+    AnyEvent->condvar->recv;
+
 =head1 Description
 
 TODO
@@ -1042,8 +1055,125 @@ TODO
 
 =head1 Methods
 
+Well, the public bits anyway...
 
+=over
 
+=item new( ... )
+
+This constructs a new L<AnyEvent::MSN> object. Required parameters are:
+
+=over
+
+=item passport
+
+This is an email address.
+
+Microsoft calls them passports in some documentation but I'm leaning towards
+the less odd 'username' for this in a future version of the API. Just... keep
+that in mind.
+
+=item password
+
+It's... your password.
+
+=back
+
+Optional parameters to C<new> include...
+
+=over
+
+=item status
+
+This will be used as your initial online status and must be one of the
+following:
+
+=over
+
+=item NLN
+
+Make the client appear Online (after logging in) and send and receive
+notifications about buddies.
+
+This is the default.
+
+=item FLN
+
+Make the client Offline. If the client is already online, offline
+notifications will be sent to users on the RL. No message activity is allowed.
+In this state, the client can only synchronize the lists as described above.
+
+=item HDN
+
+Make the client appear Hidden/Invisible. If the client is already
+online, offline notifications will be sent to users on the RL. The client will
+appear as Offline to others but can receive online/offline notifications from
+other users, and can also synchronize the lists. Clients cannot receive any
+instant messages in this state.
+
+=item BSY
+
+Make the client appear Busy. This is a sub-state of NLN.
+
+=item IDL
+
+Make the client appear Idle. This is a sub-state of NLN.
+
+=item BRB
+
+Make the client say they'll Be Right Back. This is a sub-state of NLN.
+
+=item AWY
+
+Make the client appear to be Away from their computer. This is a sub-state of
+NLN.
+
+=item PHN
+
+Makes the client appear to be on the Phone. This is a sub-state of NLN.
+
+=item LUN
+
+Makes the client appear to be out to Lunch. This is a sub-state of NLN.
+
+=back
+
+=item friendlyname
+
+This sets the display or friendly name for the client. This is what your
+friends see on their buddylists.
+
+=item personalmessage
+
+This is the short message typically shown below the friendly name.
+
+=item no_autoconnect
+
+Normally, L<AnyEvent::MSN-E<gt>new( ... )> automatically initiates the
+L<client login|/connect> stage. If this is set to a true value, that doesn't
+happen and you'll need to call L<connec/connect> yourself.
+
+=back
+
+=item connect
+
+Initiates the logon process. You should only need to call this if you passed
+C<no_autoconnect => 1> to L<the constructor/new>.
+
+=back
+
+=head1 Events
+
+These are the currently supported events...
+
+=over
+
+=item on_connect
+
+This is triggered when we have completed the login stage but before we set our
+initial status.
+
+=back
 
 =head1 Notes
 
@@ -1077,6 +1207,20 @@ are initiated and handled.
 
 Things like the address book are very difficult to use because (for now) I
 simply store the parsed XML Microsoft sends me.
+
+=back
+
+=head1 To Do
+
+This is stuff I've yet to do. Obviously.
+
+=over
+
+=item p2p
+
+This includes file transfers, custom icons, even webcam and audio msgs are
+build on this. The protocol changed between MSNP18 and MSNP21 I'll get around
+to it.
 
 =back
 
