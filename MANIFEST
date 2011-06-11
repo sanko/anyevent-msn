@@ -8,3 +8,4 @@ MANIFEST			This list of files
 META.json
 META.yml
 README
+t/001_basic/001_use_ok.t
