@@ -1,22 +1,36 @@
 use Module::Build;
-Module::Build->new(module_name => 'AnyEvent::MSN',
-                   license     => 'artistic_2',
-                   requires    => {
-                                perl              => '5.012',
-                                AnyEvent          => '5.31',
-                                'AnyEvent::HTTP'  => '2.1',
-                                'MIME::Base64'    => '3.13',
-                                'Moose'           => '2.0002',
-                                'Try::Tiny'       => '0.09',
-                                'XML::Twig'       => '3.38',
-                                'Digest::HMAC'    => '1.02',
-                                'Digest::SHA'     => '5.61',
-                                'Digest::MD5'     => '2.51',
-                                'Crypt::CBC'      => '2.30',
-                                'Crypt::DES'      => '2.05',
-                                'Crypt::DES_EDE3' => '0.01'
-                   },
-                   configure_requires => {'Module::Build' => 0.38}
+Module::Build->new(
+       dist_author        => 'Sanko Robinson <sanko@cpan.org>',
+       module_name        => 'AnyEvent::MSN',
+       license            => 'artistic_2',
+       build_requires     => {'Test::More' => 0},
+       configure_requires => {'Module::Build' => 0.38},
+       requires           => {
+                    perl              => '5.012',
+                    AnyEvent          => '5.31',
+                    'AnyEvent::HTTP'  => '2.1',
+                    'MIME::Base64'    => '3.13',
+                    'Moose'           => '2.0002',
+                    'Try::Tiny'       => '0.09',
+                    'XML::Twig'       => '3.38',
+                    'Digest::HMAC'    => '1.02',
+                    'Digest::SHA'     => '5.61',
+                    'Digest::MD5'     => '2.51',
+                    'Crypt::CBC'      => '2.30',
+                    'Crypt::DES'      => '2.05',
+                    'Crypt::DES_EDE3' => '0.01'
+       },
+       create_readme        => 1,
+       recursive_test_files => 1,
+       meta_merge           => {
+           keywords  => [qw[MSN client MSNP21 IM instant message Windows]],
+           resources => {
+               bugtracker => 'http://github.com/sanko/anyevent-msn/issues',
+               repository => 'git://github.com/sanko/anyevent-msn.git',
+               ChangeLog  => 'http://github.com/sanko/anyevent-msn/commits',
+               license => 'http://www.perlfoundation.org/artistic_license_2_0'
+           }
+       }
 )->create_build_script;
 
 =pod
