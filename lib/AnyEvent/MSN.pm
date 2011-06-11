@@ -897,39 +897,41 @@ XML
                        'connection' => 'Keep-Alive'
         );
         @headers{keys %$headers} = values %$headers;
-
-        $s->_add_soap_request($uri,AnyEvent::HTTP::http_request(
-            POST       => $uri,
-            headers    => \%headers,
-            timeout    => 15,
-            persistent => 1,
-            body       => $content,
-            sub {
-                my ($body, $hdr) = @_;
-                state $xml_twig //= XML::Twig->new();
-                $xml_twig->parse($body) if $body;    # build it
-                my $xml;
-                try {
-                    $xml = $xml_twig->simplify;
+        $s->_add_soap_request(
+            $uri,
+            AnyEvent::HTTP::http_request(
+                POST       => $uri,
+                headers    => \%headers,
+                timeout    => 15,
+                persistent => 1,
+                body       => $content,
+                sub {
+                    my ($body, $hdr) = @_;
+                    state $xml_twig //= XML::Twig->new();
+                    $xml_twig->parse($body) if $body;    # build it
+                    my $xml;
+                    try {
+                        $xml = $xml_twig->simplify;
+                    }
+                    catch {
+                        $s->trigger_error(qq[During SOAP request $_], 1);
+                        $xml = {};
+                    };
+                    $s->_del_soap_request($uri);
+                    return $cb->($xml)
+                        if $hdr->{Status} =~ /^2/
+                            && !defined $xml->{'S:Fault'};
+                    ddx $hdr;
+                    $s->trigger_error(
+                           $xml->{'S:Fault'}{'soap:Reason'}{'soap:Text'}
+                               {'content'} // $xml->{'S:Fault'}{'faultstring'}
+                               // $hdr->{Reason},
+                           1
+                    );
                 }
-                catch {
-                    $s->trigger_error(qq[During SOAP request $_], 1);                  $xml = {};
-                };
-                        $s->_del_soap_request($uri );
-
-                return $cb->($xml)
-                    if $hdr->{Status} =~ /^2/ && !defined $xml->{'S:Fault'};
-                ddx $hdr;
-                $s->trigger_error(
-                    $xml->{'S:Fault'}{'soap:Reason'}{'soap:Text'}{'content'}
-                        // $xml->{'S:Fault'}{'faultstring'} // $hdr->{Reason},
-                    1
-                );
-
-            }
-        )
-          );
-     }
+            )
+        );
+    }
 
     # Methods exposed publicly
     sub disconnect {    # cleanly disconnect from switchboard
