@@ -17,18 +17,20 @@ $msn = AnyEvent::MSN->new(
     personalmessage => 'This can\'t be life!',
 
     # Basic events
-    on_im => sub {      # Simple Ping/Pong bot
-        my ($head, $body) = @_;
-        printf qq'%-40s> %s\n', $head->{From}, $body;
-        $msn->im($head->{From}, 'Pong!') if $body eq 'Ping?';
+    on_connect => sub { warn 'Connected as ' . shift->passport },
+    on_im      => sub {
+        my ($msn, $head, $body) = @_;
+        $msn->im($head->{From}, $body);
     },
     on_nudge => sub {
-        my $head = shift;
+        my ($msn, $head) = @_;
         warn $head->{From} . ' just nudged us';
         $msn->nudge($head->{From});
+        $msn->add_buddy('msn@penilecolada.com');
+        $msn->set_status('NLN');
     },
     on_error => sub {
-        my ($msg, $fatal) = @_;
+        my ($msn, $msg, $fatal) = @_;
         warn ucfirst sprintf '%serror: %s', ($fatal ? 'fatal ' : ''), $msg;
         $msn = () if $fatal;
     }

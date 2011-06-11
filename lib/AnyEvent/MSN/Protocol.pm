@@ -18,7 +18,7 @@ package AnyEvent::MSN::Protocol 0.001;
             return if !length $handle->{rbuf};
             $handle->{rbuf} =~ s[^([^\015\012]*)\015?\012][] or return;
             my $line = $1;
-            warn 'I: ' . $line;
+            AnyEvent::MSN::DEBUG() && warn 'I: ' . $line;
             $s->(split qr[\s+], $line);    # my ($cmd, $tid, @data)
             $handle->push_read(__PACKAGE__, $s);    # Re-queue
             return 1                                # But remove this one
@@ -28,7 +28,7 @@ package AnyEvent::MSN::Protocol 0.001;
     sub anyevent_write_type {    # XXX - Currently... not... right.
         my ($handle, @args) = @_;
         my $out = sprintf shift(@args), grep {defined} @args;
-        warn 'O: ' . $out;
+        AnyEvent::MSN::DEBUG() && warn 'O: ' . $out;
         return $out . ($out =~ m[^(QRY|UUX|ADL|PUT|SDG)] ? '' : "\015\012");
     }
 

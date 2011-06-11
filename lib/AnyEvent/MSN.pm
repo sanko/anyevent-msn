@@ -68,33 +68,11 @@ package AnyEvent::MSN 0.001;
     has [qw[friendlyname personalmessage]] =>
         (is => 'ro', isa => 'Str', default => '');
 
-=status
-   NLN - Make the client Online (after logging in) and send and receive
-   notifications about buddies.
-   FLN - Make the client Offline. If the client is already online,
-   offline notifications will be sent to users on the RL. No message
-   activity is allowed. In this state, the client can only synchronize
-   the lists as described above.
-   HDN - Make the client Hidden/Invisible. If the client is already
-   online, offline notifications will be sent to users on the RL. The
-   client will appear as Offline to others but can receive
-   online/offline notifications from other users, and can also
-   synchronize the lists. Clients cannot receive any instant messages
-   in this state.
-
-   All other States are treated as sub-states of NLN (online). The
-   other States currently supported are:
-   BSY - Busy.
-   IDL - Idle.
-   BRB - Be Right Back.
-   AWY - Away From Computer.
-   PHN - On The Phone.
-   LUN - Out To Lunch.
-=cut
 
     has status => (is      => 'ro',
                    isa     => enum([qw[NLN FLN BSY IDL BRB AWY PHN LUN]]),
-                   default => 'NLN'
+                   default => 'NLN',
+                   writer  => 'set_status' # exposed publicly
     );
 
     # Client info for MSNP21
@@ -145,8 +123,10 @@ package AnyEvent::MSN 0.001;
 
     # Internals
     has handle => (
-        is        => 'ro',
-        isa       => 'Object',
+        is  => 'ro',
+        isa => 'Object',
+
+        # weak_ref  => 1,
         predicate => '_has_handle',
         writer    => '_set_handle',
         clearer   => '_reset_handle',
@@ -258,7 +238,9 @@ package AnyEvent::MSN 0.001;
                             my $method =
                                 $s->can('_handle_packet_' . lc($cmd));
                             $method ||= sub {
-                                $s->trigger_error('Unhandled command type: ' . $cmd,0);
+                                $s->trigger_error(
+                                            'Unhandled command type: ' . $cmd,
+                                            0);
                             };
                             if ($cmd =~ m[^(?:GCF|MSG|NFY|NOT|SDG|UBX)$])
                             {    # payload types
@@ -266,22 +248,28 @@ package AnyEvent::MSN 0.001;
                                     chunk => $data[-1] // $tid, # GFC:0, MSG:2
                                     sub {
                                         $s->$method(
-                                                 $tid, @data,
-                                                 $cmd =~ m[GCF]
-                                                 ? XML::Simple::XMLin(
+                                            $tid, @data,
+                                            $cmd =~ m[GCF]
+                                            ? XML::Simple::XMLin(
                                                      $_[1],
                                                      KeyAttr => [qw[type id]],
                                                      ValueAttr => ['value']
-                                                     )
-                                                 : $cmd =~ m[(?:MSG|NFY|SDG)]
-                                                 ? AnyEvent::MSN::Protocol::__parse_msn_headers($_[1])
-                                                 : $_[1]
+                                                )
+                                            : $cmd =~ m[(?:MSG|NFY|SDG)]
+                                            ? AnyEvent::MSN::Protocol::__parse_msn_headers(
+                                                                         $_[1]
+                                                )
+                                            : $_[1]
                                         );
                                     }
                                 );
                             }
                             elsif ($cmd =~ m[^\d+$]) {    # Error!
-                                $s->trigger_error(AnyEvent::MSN::Protocol::err2str($cmd, @data));
+                                $s->trigger_error(
+                                             AnyEvent::MSN::Protocol::err2str(
+                                                                   $cmd, @data
+                                             )
+                                );
                             }
                             else {
                                 $s->$method($tid, @data);
@@ -316,9 +304,9 @@ package AnyEvent::MSN 0.001;
                 on_drain => sub { },
                 on_error => sub {
                     my $h = shift;
+                    $s->trigger_error(reverse @_);
                     $h->destroy;
                     return if !$_[0];
-                    ouch @_;
 
                     #...;
                     $s->cleanup($_[1]);
@@ -424,23 +412,23 @@ package AnyEvent::MSN 0.001;
 
     sub _handle_packet_nfy {
         my ($s, $type, $len, $headers, $data) = @_;
-        if ($headers->{From} eq '1:' . $s->passport) {    # Without guid
-            my $body = sprintf '<user>' . '<s n="PE">
-            <UserTileLocation>0</UserTileLocation><FriendlyName>%s</FriendlyName><PSM>%s</PSM><RUM></RUM><RLT>0</RLT></s>'
-                . '<s n="IM"><Status>%s</Status><CurrentMedia></CurrentMedia></s>'
-                . '<sep n="PD"><ClientType>1</ClientType><EpName>%s</EpName><Idle>false</Idle><State>%s</State></sep>'
-                . '<sep n="PE" epid="%s"><VER>MSNMSGR:15.4.3508.1109</VER><TYP>1</TYP><Capabilities>2952790016:557056</Capabilities></sep>'
-                . '<sep n="IM"><Capabilities>2953838624:132096</Capabilities></sep>'
-                . '</user>', __html_escape($s->friendlyname),
-                __html_escape($s->personalmessage),
-                $s->status,
-                __html_escape($s->location), $s->status, $s->guid;
-            my $out =
-                sprintf
-                qq[To: 1:%s\r\nRouting: 1.0\r\nFrom: 1:%s;epid=%s\r\n\r\nStream: 1\r\nFlags: ACK\r\nReliability: 1.0\r\n\r\nContent-Length: %d\r\nContent-Type: application/user+xml\r\nPublication: 1.0\r\nUri: /user\r\n\r\n%s],
-                $s->passport,
-                $s->passport, $s->guid, length($body), $body;
-            $s->send("PUT %d %d\r\n%s", $s->tid, length($out), $out);
+        ddx $type, $len, $headers, $data;
+        given ($type) {
+            when ('PUT') {
+
+
+                 my $xml = XML::Twig->new()->parse($data)->root->simplify
+            if $data;
+                ddx $xml;
+
+                ##########
+                if ((!defined $headers->{By})
+                    && $headers->{From} eq '1:' . $s->passport)
+                {    # Without guid
+                    $s->trigger_connect;
+                    $s->set_status($s->status);# XXX - Yeah, this is odd
+                }
+            }
         }
     }
     sub _handle_packet_not { my $s = shift; ddx \@_; }
@@ -548,7 +536,6 @@ XML
 XML
             sub {
                 my $contacts = shift;
-                warn 'Got address book...';
 
                 # XXX - Do something with these contacts
                 $s->_set_contacts($contacts);
