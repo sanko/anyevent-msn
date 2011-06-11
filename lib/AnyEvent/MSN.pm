@@ -612,27 +612,138 @@ XML
             when ('CustomEmoticon') { warn 'Custom Emoticon' }
             when ('Control/Typing') { warn 'Typing!' }
             when ('Data') {
+                my ($header, $packet, $footer);
+                if ($head->{To} !~ m[{.+}]) {
 
-=docs
+# 0                   1                   2                   3                   4                   5
+# 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2
+# +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+# |  SID  |  ID   | Data Offset   | Total Size    |Length | Flags | AckID |AckUID | Ack Data Size |DATA....
+# +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+#
+# The 48-byte binary header consists of 6 DWORDs and 3 QWORDS, which are all in little endian (little end first) order, where a DWORD is a 32-bit (4 byte) unsigned integer and QWORD is 64 bits (8 bytes).
+#
+# 1	 0	 DWORD   SessionID                  The SessionID, which is zero when the Clients are negotiating about the session.
+# 2	 4	 DWORD   Identifier                 The first message you receive from the other client is the BaseIndentifier, the other messages contains a number near the BaseIdentifier.
+# 3	 8	 QWORD   Data offset                Explained under Splitting big messages. Most often the messages are not split, and this value is 0.
+# 4	 16	 QWORD   Total data size	        Case 1: The byte size of all data sent between the header and footer of all of the message parts. This is the same independent of how many pieces the message is split in. Case 2: If this is an acknowledgement, this field is a copy of the same field in the message acknowledged. Sending acknowledgements
+# 5	 24	 DWORD   Message length	            The byte size of the data between the header and footer of this particular message.
+# 6	 28	 DWORD   Flag	                    Identifies the message type. See the flags section
+# 7	 32	 DWORD   Acknowledged identifier    In case the message is an acknowledgement, this is a copy of the Identifier of the acknowledged message. Else this is some random generated number.
+# 8	 36	 DWORD   Acknowledged unique ID     In case the message is an acknowledgement, this is a copy of the previous field of the acknowledged message. Else this is 0.
+# 9	 40	 QWORD   Acknowledged data size     In case the message is an acknowledgement, this is a copy of the Total data size field of the acknowledged message. Else this is 0.
 
-1	 BYTE	HL	 Length of header.
-2	 BYTE	OP	 Operation code. 0: None, 2: Ack, 3: Init session.
-3	 WORD	ML	 Message length without header length. (but included the header's message length)
-4	 DWORD	BaseID	 Initially random (?) To get the next one add the payload length.
-TLVs	 BYTE[HL-8]	TLV Data	 TLV list consists of TLV-encoded pairs (type, length, value). A whole TLV list is padded with zeros to fit 4-byte boundary. If header length(HL) greater then 8 TLVs = ReadBytes(HeaderLength - 8) ; else process data packet (D). TLVs: T=0x1(1) L=0xc(12): IPv6 address of sender/receiver. T=0x2(2) L=0x4(4): ACK identifier.
-DH	 DHL	Data Header
-BYTE DHL: Data header length
-BYTE TFCombination: 0x1=First, 0x4=Msn object (display picture, emoticon etc), 0x6=File transfer
-WORD PackageNumber: Package number
-DWORD SessionID: Session Identifier
-BYTE[DHL-8] Data packets TLVs: if (DHL>8) then read bytes(DHL - 8). T=0x1(1) L=0x8(8): Data remaining.
-D	 ML-DHL	Data Packet	 SLP messsage or data packet
-F	 DWORD	Footer	 The footer.
 
+                    sub _quad {
+                        state $little//= unpack 'C', pack 'S', 1;
+                        my $str = shift;
+                        my $big;
+                        if (!eval { $big = unpack('Q', $str); 1; }) {
+                            my ($lo, $hi) = unpack 'LL', $str;
+                            ($hi, $lo) = ($lo, $hi) if !$little;
+                            $big = $lo + $hi * (1 + ~0);
+                            if ($big + 1 == $big) {
+                                warn 'A-pprox-i-mate!';
+                            }
+                        }
+                        return $big;
+                    }
+                    (my ($sessionid,  $identifier, $offset,
+                         $total_size, $msg_len,    $flag,
+                         $ack_id,     $ack_uid,    $ack_data_size
+                     ),
+                     $packet
+                    ) = unpack 'NNa8a8NNNNa8a*', $body;
+                    ($packet, $footer) =
+                        unpack 'a' . (_quad($total_size)) . ' a', $packet;
+                    $header = {sessionid     => $sessionid,
+                               identifier    => $identifier,
+                               offset        => _quad($offset),
+                               total_size    => _quad($total_size),
+                               msg_len       => $msg_len,
+                               flag          => $flag,
+                               ack_id        => $ack_id,
+                               ack_uid       => $ack_uid,
+                               ack_data_size => _quad($ack_data_size)
+                    };
+                }
+                else {
 
-=cut
+# 0                   1                   2                   3
+# 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+# +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+# |L|O|Len|Base ID|if L>8 then TLVs = read(L - 8) else skip  ....
+# +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+# | if Len > 0 then Payload = (DH and D) else skip           ....
+# +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+#
+# For all of them - (DWORD is a 32-bit, 4 byte, unsigned integer and QWORD is 64 bits, 8 bytes.)
+#
+# 1	 BYTE	HL	Length of header.
+# 2	 BYTE	OP	Operation code. 0: None, 2: Ack, 3: Init session.
+# 3	 WORD	ML	 Message length without header length. (but included the header's message length)
+# 4	 DWORD	BaseID	 Initially random (?) To get the next one add the payload length.
+# TLVs BYTE[HL-8]	TLV Data	 TLV list consists of TLV-encoded pairs (type, length, value). A whole TLV list is padded with zeros to fit 4-byte boundary. TLVs: T=0x1(1) L=0xc(12): IPv6 address of sender/receiver. T=0x2(2) L=0x4(4): ACK identifier.
+# DH	 DHL	Data Header
+                # BYTE    DHL: Data header length
+                # BYTE    TFCombination: 0x1=First, 0x4=Msn object (display picture, emoticon etc), 0x6=File transfer
+                # WORD    PackageNumber: Package number
+                # DWORD   SessionID: Session Identifier
+                # BYTE[DHL-8] Data packets TLVs: if (DHL>8) then read bytes(DHL - 8). T=0x1(1) L=0x8(8): Data remaining.
+# D	 ML-DHL	Data Packet	 SLP messsage or data packet
+# F	 DWORD	Footer	 The footer.
 
-                die 'Data'
+                    ddx $body;
+                    my ($hl, $op, $ml, $baseid, $etc) = unpack 'CCnNa*',
+                        $body;
+                    warn sprintf 'HL     = %d',      $hl;
+                    warn sprintf 'OP     = %d (%s)', $op,
+                        (  $op == 0 ? 'None'
+                         : $op == 2 ? 'Ack'
+                         : $op == 3 ? 'Init'
+                         : 'BROKEN'
+                        );
+                    warn sprintf 'ML     = %d', $ml;
+                    warn sprintf 'BaseID = %s', $baseid;
+
+                    #
+                    my $_tlv_len = $hl - 8;
+                    $_tlv_len += $_tlv_len % 8;
+                    my ($tlv, $moar) = unpack "a$_tlv_len a*", $etc;
+                    warn sprintf 'TLV    = %s', $tlv;
+
+                    sub _tlv {
+                        my ($t, $v, $m) = unpack 'CC/a', shift;
+                        { shift // (), t => $t, v => $v, $m ? _tlv($m) : () }
+                    }
+                    my ($dhlen, $tf_combo, $pac, $ses, $XXX) =
+                        unpack 'CCnNa*', $moar;
+                    warn length($moar);
+                    ($packet, $footer) = unpack 'a' . ($ml - $dhlen) . 'a*',
+                        $XXX
+                        if $XXX;
+                    $header = {tlv => ($tlv ? _tlv($tlv) : ()),
+                               header_len => $hl,
+                               operation  => $op,
+                               (  $op == 0 ? 'None'
+                                : $op == 2 ? 'Ack'
+                                : $op == 3 ? 'Init'
+                                : 'BROKEN'
+                               ),
+                               base_id => $baseid,
+                               msg_len => $ml
+                    };
+
+                    #
+                }
+                ddx $header;
+                ddx($packet =~ m[^(.+?)\r\n(.+)\r\n\r\n(.)$]s);
+                my ($p2p_action, $p2p_head, $p2p_body) =
+                    ($packet =~ m[^(.+?)\r\n(.+)\r\n\r\n(.)$]s);
+                ddx $head, $p2p_action,
+                    AnyEvent::MSN::Protocol::__parse_msn_headers($p2p_head),
+                    $p2p_body;
+                warn 'Data'
             }
             when ('Signal/P2P')              { warn 'P2P' }
             when ('Signal/ForceAbchSync')    { }
