@@ -3,14 +3,11 @@ package AnyEvent::MSN::Protocol 0.001;
     use 5.012;
     use strict;
     use AnyEvent;
-    use Data::Dump;
-    use Ouch;
     use MIME::Base64 qw[];
     use Digest::HMAC qw[hmac];
     use Digest::SHA qw[];
     use Digest::MD5 qw[];
     use Crypt::CBC qw[];
-    use XML::Simple;
 
     sub anyevent_read_type {
         my ($handle, $s) = @_;

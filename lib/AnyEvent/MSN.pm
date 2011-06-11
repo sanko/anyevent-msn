@@ -7,18 +7,17 @@ package AnyEvent::MSN 0.001;
     use AnyEvent qw[];
     use AnyEvent::Handle qw[];
     use AnyEvent::HTTP qw[];
-    use Ouch;
     use Try::Tiny;
     use XML::Twig;
     use AnyEvent::MSN::Protocol;
     use MIME::Base64 qw[];
-    use Scalar::Util qw[];
+
+    #
     our $DEBUG = 0;
     sub DEBUG {$DEBUG}
 
     # XXX - During dev only
-    use Data::Dump;
-
+    #use Data::Dump;
     sub DEMOLISH {
         my $s = shift;
         $s->handle->destroy if $s->_has_handle && $s->handle;
@@ -67,12 +66,11 @@ package AnyEvent::MSN 0.001;
     # User defined extras
     has [qw[friendlyname personalmessage]] =>
         (is => 'ro', isa => 'Str', default => '');
-
-
-    has status => (is      => 'ro',
-                   isa     => enum([qw[NLN FLN BSY IDL BRB AWY PHN LUN]]),
-                   default => 'NLN',
-                   writer  => 'set_status' # exposed publicly
+    has status => (
+        is      => 'ro',
+        isa     => enum([qw[NLN FLN BSY IDL BRB AWY PHN LUN]]),
+        default => 'NLN',
+        writer => 'set_status'    # exposed publicly
     );
 
     # Client info for MSNP21
@@ -133,7 +131,6 @@ package AnyEvent::MSN 0.001;
         handles   => {
             send => sub {
                 my $s = shift;
-                Scalar::Util::weaken($s);
                 $s->handle->push_write('AnyEvent::MSN::Protocol' => @_)
                     if $s->_has_handle;    # XXX - Else mention it...
                 }
@@ -224,7 +221,6 @@ package AnyEvent::MSN 0.001;
 
     sub connect {
         my ($s, $r) = @_;
-        Scalar::Util::weaken($s);
         $r = " $r" if length $r;
         $s->_set_handle(
             AnyEvent::Handle->new(
@@ -296,31 +292,18 @@ package AnyEvent::MSN 0.001;
                     $s->_set_ping_timer(AE::timer 120,
                                         180, sub { $s->send('PNG') });
                 },
-                on_connect_error => sub {
-                    ...;
-
-                    # XXX - Mention it
-                },
-                on_drain => sub { },
-                on_error => sub {
+                on_connect_error => sub { $s->trigger_error(shift, 1) },
+                on_error         => sub {
                     my $h = shift;
                     $s->trigger_error(reverse @_);
                     $h->destroy;
                     return if !$_[0];
-
-                    #...;
                     $s->cleanup($_[1]);
                 },
                 on_eof => sub {
                     $_[0]->destroy;
                     $s->cleanup('connection closed');
-                    ...;
-                },
-                on_read => sub {
-                    warn 'READ!!!!!!!!!!!!!!!!';
-                    die shift->rbuf;
-                },
-                on_write => sub {...}
+                }
             )
         );
     }
@@ -399,7 +382,7 @@ package AnyEvent::MSN 0.001;
             when (m[text/x-msmsgsinitialmdatanotification]) {
                 warn 'You\'ve got mail!/aol'
             }
-            default { shift; ddx \@_; ... }
+            default { $s->trigger_error('Unknown message type: ' . $_) }
         }
     }
 
@@ -412,26 +395,25 @@ package AnyEvent::MSN 0.001;
 
     sub _handle_packet_nfy {
         my ($s, $type, $len, $headers, $data) = @_;
-        ddx $type, $len, $headers, $data;
+
+        #ddx $type, $len, $headers, $data;
         given ($type) {
             when ('PUT') {
+                my $xml = XML::Twig->new()->parse($data)->root->simplify
+                    if $data;
 
-
-                 my $xml = XML::Twig->new()->parse($data)->root->simplify
-            if $data;
-                ddx $xml;
-
+                #ddx $xml;
                 ##########
                 if ((!defined $headers->{By})
                     && $headers->{From} eq '1:' . $s->passport)
                 {    # Without guid
                     $s->trigger_connect;
-                    $s->set_status($s->status);# XXX - Yeah, this is odd
+                    $s->set_status($s->status);    # XXX - Yeah, this is odd
                 }
             }
         }
     }
-    sub _handle_packet_not { my $s = shift; ddx \@_; }
+    sub _handle_packet_not { my $s = shift; }
 
     sub _handle_packet_put {
     }
@@ -563,10 +545,12 @@ XML
                 }
                 my $data = sprintf '<ml l="1">%s</ml>', join '', map {
                     sprintf '<d n="%s">%s</d>', $_, join '', map {
-                        sprintf '<c n="%s" t="1"><s l="3" n="IM" /><s l="3" n="PE" /><s l="3" n="PF" /></c>', $_
+                        sprintf
+                            '<c n="%s" t="1"><s l="3" n="IM" /><s l="3" n="PE" /><s l="3" n="PF" /></c>',
+                            $_
                         } sort @{$contacts{$_}}
                 } sort keys %contacts;
-                 $s->send("ADL %d %d\r\n%s", $s->tid, length($data), $data)
+                $s->send("ADL %d %d\r\n%s", $s->tid, length($data), $data);
             }
         );
     }
@@ -579,7 +563,8 @@ XML
 
     sub _handle_packet_sdg {
         my ($s, $tid, $size, $head, $body) = @_;
-        ddx [$head, $body];
+
+        #ddx [$head, $body];
         given ($head->{'Message-Type'}) {
             when ('Text') {
                 given ($head->{'Service-Channel'}) {
@@ -616,8 +601,6 @@ XML
 # 7	 32	 DWORD   Acknowledged identifier    In case the message is an acknowledgement, this is a copy of the Identifier of the acknowledged message. Else this is some random generated number.
 # 8	 36	 DWORD   Acknowledged unique ID     In case the message is an acknowledgement, this is a copy of the previous field of the acknowledged message. Else this is 0.
 # 9	 40	 QWORD   Acknowledged data size     In case the message is an acknowledgement, this is a copy of the Total data size field of the acknowledged message. Else this is 0.
-
-
                     sub _quad {
                         state $little//= unpack 'C', pack 'S', 1;
                         my $str = shift;
@@ -669,15 +652,14 @@ XML
 # 4	 DWORD	BaseID	 Initially random (?) To get the next one add the payload length.
 # TLVs BYTE[HL-8]	TLV Data	 TLV list consists of TLV-encoded pairs (type, length, value). A whole TLV list is padded with zeros to fit 4-byte boundary. TLVs: T=0x1(1) L=0xc(12): IPv6 address of sender/receiver. T=0x2(2) L=0x4(4): ACK identifier.
 # DH	 DHL	Data Header
-                # BYTE    DHL: Data header length
-                # BYTE    TFCombination: 0x1=First, 0x4=Msn object (display picture, emoticon etc), 0x6=File transfer
-                # WORD    PackageNumber: Package number
-                # DWORD   SessionID: Session Identifier
-                # BYTE[DHL-8] Data packets TLVs: if (DHL>8) then read bytes(DHL - 8). T=0x1(1) L=0x8(8): Data remaining.
+# BYTE    DHL: Data header length
+# BYTE    TFCombination: 0x1=First, 0x4=Msn object (display picture, emoticon etc), 0x6=File transfer
+# WORD    PackageNumber: Package number
+# DWORD   SessionID: Session Identifier
+# BYTE[DHL-8] Data packets TLVs: if (DHL>8) then read bytes(DHL - 8). T=0x1(1) L=0x8(8): Data remaining.
 # D	 ML-DHL	Data Packet	 SLP messsage or data packet
 # F	 DWORD	Footer	 The footer.
-
-                    ddx $body;
+#ddx $body;
                     my ($hl, $op, $ml, $baseid, $etc) = unpack 'CCnNa*',
                         $body;
                     warn sprintf 'HL     = %d',      $hl;
@@ -720,14 +702,17 @@ XML
 
                     #
                 }
-                ddx $header;
-                ddx($packet =~ m[^(.+?)\r\n(.+)\r\n\r\n(.)$]s);
+
+                #ddx $header;
+                #ddx($packet =~ m[^(.+?)\r\n(.+)\r\n\r\n(.)$]s);
                 my ($p2p_action, $p2p_head, $p2p_body) =
                     ($packet =~ m[^(.+?)\r\n(.+)\r\n\r\n(.)$]s);
-                ddx $head, $p2p_action,
-                    AnyEvent::MSN::Protocol::__parse_msn_headers($p2p_head),
-                    $p2p_body;
-                warn 'Data'
+
+                #ddx $head, $p2p_action,
+                #    AnyEvent::MSN::Protocol::__parse_msn_headers($p2p_head),
+                #    $p2p_body;
+                #warn 'Data'
+                # XXX - trigger a callback of some sort
             }
             when ('Signal/P2P')              { warn 'P2P' }
             when ('Signal/ForceAbchSync')    { }
@@ -845,7 +830,8 @@ XML
         if ($len == 0 && $passport eq '1:' . $s->passport) {
         }
         else {
-            ddx $xml;
+
+            #ddx $xml;
             my ($user) = ($passport =~ m[:(.+)$]);
             $s->_add_contact($user, $xml);
         }
@@ -912,7 +898,8 @@ XML
                     return $cb->($xml)
                         if $hdr->{Status} =~ /^2/
                             && !defined $xml->{'S:Fault'};
-                    ddx $hdr;
+
+                    #ddx $hdr;
                     $s->trigger_error(
                            $xml->{'S:Fault'}{'soap:Reason'}{'soap:Text'}
                                {'content'} // $xml->{'S:Fault'}{'faultstring'}
@@ -963,10 +950,10 @@ XML
             $to, $s->passport, $s->guid;
         $s->send(qq'SDG 0 %d\r\n%s', length($data), $data);
     }
-    sub add_buddy{
-        my $s = shift;
 
-           my      $data = sprintf <<'', reverse split '@', shift, 2;
+    sub add_buddy {
+        my $s = shift;
+        my $data = sprintf <<'', reverse split '@', shift, 2;
 <ml>
     <d n="%s">
         <c n="%s" t="1">
@@ -977,35 +964,29 @@ XML
     </d>
 </ml>
 
-                   $s->send("ADL %d %d\r\n%s", $s->tid, length($data), $data);
-
-
-
-
-        }
-        after set_status => sub {
-            my($s,$status)=@_;
-
-
-                      my $body = sprintf '<user>' . '<s n="PE">
+        $s->send("ADL %d %d\r\n%s", $s->tid, length($data), $data);
+    }
+    after set_status => sub {
+        my ($s, $status) = @_;
+        my $body = sprintf '<user>' . '<s n="PE">
             <UserTileLocation>0</UserTileLocation><FriendlyName>%s</FriendlyName><PSM>%s</PSM><RUM></RUM><RLT>0</RLT></s>'
-                        . '<s n="IM"><Status>%s</Status><CurrentMedia></CurrentMedia></s>'
-                        . '<sep n="PD"><ClientType>1</ClientType><EpName>%s</EpName><Idle>false</Idle><State>%s</State></sep>'
-                        . '<sep n="PE" epid="%s"><VER>MSNMSGR:15.4.3508.1109</VER><TYP>1</TYP><Capabilities>2952790016:557056</Capabilities></sep>'
-                        . '<sep n="IM"><Capabilities>2953838624:132096</Capabilities></sep>'
-                        . '</user>', __html_escape($s->friendlyname),
-                        __html_escape($s->personalmessage),
-                        $status,
-                        __html_escape($s->location), $status, $s->guid;
-                    my $out =
-                        sprintf
-                        qq[To: 1:%s\r\nRouting: 1.0\r\nFrom: 1:%s;epid=%s\r\n\r\nStream: 1\r\nFlags: ACK\r\nReliability: 1.0\r\n\r\nContent-Length: %d\r\nContent-Type: application/user+xml\r\nPublication: 1.0\r\nUri: /user\r\n\r\n%s],
-                        $s->passport,
-                        $s->passport, $s->guid, length($body), $body;
-                    $s->send("PUT %d %d\r\n%s", $s->tid, length($out), $out);
+            . '<s n="IM"><Status>%s</Status><CurrentMedia></CurrentMedia></s>'
+            . '<sep n="PD"><ClientType>1</ClientType><EpName>%s</EpName><Idle>false</Idle><State>%s</State></sep>'
+            . '<sep n="PE" epid="%s"><VER>MSNMSGR:15.4.3508.1109</VER><TYP>1</TYP><Capabilities>2952790016:557056</Capabilities></sep>'
+            . '<sep n="IM"><Capabilities>2953838624:132096</Capabilities></sep>'
+            . '</user>', __html_escape($s->friendlyname),
+            __html_escape($s->personalmessage),
+            $status,
+            __html_escape($s->location), $status, $s->guid;
+        my $out =
+            sprintf
+            qq[To: 1:%s\r\nRouting: 1.0\r\nFrom: 1:%s;epid=%s\r\n\r\nStream: 1\r\nFlags: ACK\r\nReliability: 1.0\r\n\r\nContent-Length: %d\r\nContent-Type: application/user+xml\r\nPublication: 1.0\r\nUri: /user\r\n\r\n%s],
+            $s->passport,
+            $s->passport, $s->guid, length($body), $body;
+        $s->send("PUT %d %d\r\n%s", $s->tid, length($out), $out);
+    };
 
-};
-# Non-OOP utility functions
+    # Non-OOP utility functions
     sub __html_escape {
         my $x = shift;
         $x =~ s[&][&amp;]sg;
@@ -1207,6 +1188,11 @@ are initiated and handled.
 
 Things like the address book are very difficult to use because (for now) I
 simply store the parsed XML Microsoft sends me.
+
+=item Correct Client Capabilities
+
+They (and a few other properties) are all hardcoded values taken from MSN 2011
+right now.
 
 =back
 
