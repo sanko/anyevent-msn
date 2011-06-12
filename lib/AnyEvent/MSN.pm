@@ -1039,7 +1039,9 @@ Well, the public bits anyway...
 
 =over
 
-=item new( ... )
+=item new
+
+    my $msn = AnyEvent::MSN->new(passport => 'you@hotmail.com', password => 'password');
 
 This constructs a new L<AnyEvent::MSN> object. Required parameters are:
 
@@ -1129,29 +1131,187 @@ This is the short message typically shown below the friendly name.
 
 =item no_autoconnect
 
-Normally, L<AnyEvent::MSN-E<gt>new( ... )> automatically initiates the
+Normally, L<AnyEvent::MSN-E<gt>new( ... )|/new> automatically initiates the
 L<client login|/connect> stage. If this is set to a true value, that doesn't
 happen and you'll need to call L<connec/connect> yourself.
+
+=item on_connect
+
+This is callback is triggered when we have completed the login stage but
+before we set our initial status.
+
+=item on_im
+
+This callback is triggered when we receive an instant message. It is passed
+the raw headers (which contain a 'From' value) and the actual message.
+
+=item on_nudge
+
+This callback is triggered when we recieve a nudge. The callback is passed the
+raw headers (which contain a 'From' value).
+
+=item on_error
+
+This callback is triggered when we meet any sort of error. This callback is
+passed a texual message for display and an optional second argument which
+indicates that this is a fatal error.
 
 =back
 
 =item connect
 
 Initiates the logon process. You should only need to call this if you passed
-C<no_autoconnect => 1> to L<the constructor/new>.
+C<no_autoconnect =E<gt> 1> to L<the constructor|/new>.
 
-=back
+=item im
 
-=head1 Events
+    $msn->im('buddy@hotmail.com', 'oh hai!');
 
-These are the currently supported events...
+This sends an instant message.
+
+c<im( ... )> supports a third parameter, a string to indicate how the message
+shoud be displayed. The default is C<FN=Segoe%20UI; EF=; CO=0; CS=1; PF=0>.
+Uh, let's break that down a little.
+
+=for url http://msdn.microsoft.com/en-us/library/bb969558(v=office.12).aspx
+
+The message format specifies the font (FN), effect (EF), color (CO), character
+set (CS) and pitch and family (PF) used for rendering the text message.
+
+The value of the Format element is a string of the following key/value pairs:
 
 =over
 
-=item on_connect
+=item FN
 
-This is triggered when we have completed the login stage but before we set our
-initial status.
+Specifies a font name. The font name must be URL-encoded. For example, to have
+a font of "MS Sans Serif", you would have to specify C<FN=MS%20Sans%20Serif>.
+Font names are not case-sensitive and only spaces should be URL-encoded.
+URL-encoding other characters such as numbers and letters cause unpredictable
+results in other clients.
+
+According to MS, if the receiving client does not have the specified font, it
+should make judgment based on the PF and CS parameters. Basically, the client
+should select whichever available font supports the character set specified in
+CS and is closest to the category specified in PF. If those parameters are not
+present, the client should just use a default font.
+
+=item EF
+
+Specifies optional style effects. Possible effects are bold, italic,
+underline, and strikethrough. Each effect is referred to by its first letter.
+For example, to make bold-italic text, include the parameter C<EF=IB> or
+C<EF=BI>. The order does not matter. Any unknown effects are to be ignored.
+If there are no effects, just leave the parameter value blank.
+
+=item CO
+
+Specifies a font color. The value of the CO field is a six-character
+hex BGR (Note that this is I<blue-green-red>, the I<reverse> of the standard
+RGB order seen in HTML) string. The first two characters represent a hex
+number from C<00> to C<ff> for the intensity of blue, the second two are for
+green, and the third two are for red. For example, to make a full red color,
+send C<CO=0000ff>.
+
+Again, this should be in BGR; the I<reverse> of the standard RGB order seen in
+HTML.
+
+=item CS
+
+Character sets are identified in the CS parameter with one or two hexadecimal
+digits (leading zeros are dropped by the official client and are ignored if
+present), representing the numerical value Windows uses for the character set.
+The following table shows the full list of the predefined character sets that
+are included with the Microsoft® Windows® operating system.
+
+    Val Description
+    -------------------------------------------------------------------------
+    00  ANSI characters
+    01  Font is chosen based solely on name and size. If the described font is
+        not available on the system, you should substitute another font.
+    02  Standard symbol set
+    4d  Macintosh characters
+    80  Japanese shift-JIS characters
+    81  Korean characters (Wansung)
+    82  Korean characters (Johab)
+    86  Simplified Chinese characters (China)
+    88  Traditional Chinese characters (Taiwan)
+    a1  Greek characters
+    a2  Turkish characters
+    a3  Vietnamese characters
+    b1  Hebrew characters
+    b2  Arabic characters
+    ba  Baltic characters
+    cc  Cyrillic characters
+    de  Thai characters
+    ee  Sometimes called the "Central European" character set, this includes
+        diacritical marks for Eastern European countries
+    ff  Depends on the codepage of the operating system
+
+You should not assume that clients receiving your messages understand all
+character sets. This character set is arbitrary, but it is advisable to make
+it the one that causes the most characters to be displayed correctly.
+
+=item PF
+
+The PF family defines the category that the font specified in the FN parameter
+falls into. This parameter is used by the receiving client if it does not have
+the specified font installed. The value is a two-digit hexadecimal number.
+If you're familiar with the Windows APIs, this value is the PitchAndFamily
+value in RichEdit and LOGFONT.
+
+The first digit of the value represents the font family. Below is a list of
+numbers for the first digit and the font families they represent.
+
+    First Digit     Description
+    -------------------------------------------------------------------------
+    0_              Specifies a generic family name. This name is used when
+                    information about a font does not exist or does not
+                    matter. The default font is used.
+    1_              Specifies a proportional (variable-width) font with
+                    serifs. An example is Times New Roman.
+    2_              Specifies a proportional (variable-width) font without
+                    serifs. An example is Arial.
+    3_              Specifies a Monospace font with or without serifs.
+                    Monospace fonts are usually modern; examples include Pica,
+                    Elite, and Courier New.
+    4_              Specifies a font that is designed to look like
+                    handwriting; examples include Script and Cursive.
+    5_              Specifies a novelty font. An example is Old English.
+
+The second digit represents the pitch of the font — in other words, whether it
+is monospace or variable-width.
+
+    Second Digit    Description
+    -------------------------------------------------------------------------
+    _0              Specifies a generic font pitch. This name is used when
+                    information about a font does not exist or does not
+                    matter. The default font pitch is used.
+    _1              Specifies a fixed-width (Monospace) font. Examples are
+                    Courier New and Bitstream Vera Sans Mono.
+    _2              Specifies a variable-width (proportional) font. Examples
+                    are Times New Roman and Arial.
+
+Below are some PF values and example fonts that fit the category.
+
+    Examples of PF Value    Description
+    -------------------------------------------------------------------------
+    12                      Times New Roman, MS Serif, Bitstream Vera Serif
+    22                      Arial, Verdana, MS Sans Serif, Bitstream Vera Sans
+    31                      Courier New, Courier
+    42                      Comic Sans MS
+
+=back
+
+=item nudge
+
+    $msn->nudge('buddy@hotmail.com');
+
+This sends a nudge to the other person. It's called nudge in the protocol
+itself and in pidgin but in the the official client it's called 'Attention'
+and may (depending on the buddy's settings) make the IM window giggle around
+the screen for a second. ...which, I suppose, won the contest for the most
+annoying behaviour they could come up with.
 
 =back
 
@@ -1159,10 +1319,6 @@ initial status.
 
 This is where random stuff will go. The sorts of things which may make life
 somewhat easier for you but are easily skipped.
-
-=head2 IM/Chat Message Formatting
-
-The L<im|/im> method's third parameter '
 
 =head1 TODO
 
@@ -1176,7 +1332,8 @@ L<GitHub|http://github.com/sanko/anyevent-msn>.
 =item P2P Transfers
 
 MSNP supports simple file transfers, handwritten IMs, voice chat, and even
-webcam sessions through the P2P protocol.
+webcam sessions through the P2P protocol. The protocol changed between MSNP18
+and MSNP21 and I'll need to implement both. ...I'll get to it eventually.
 
 =item Group Chat
 
@@ -1192,20 +1349,6 @@ simply store the parsed XML Microsoft sends me.
 
 They (and a few other properties) are all hardcoded values taken from MSN 2011
 right now.
-
-=back
-
-=head1 To Do
-
-This is stuff I've yet to do. Obviously.
-
-=over
-
-=item p2p
-
-This includes file transfers, custom icons, even webcam and audio msgs are
-build on this. The protocol changed between MSNP18 and MSNP21 I'll get around
-to it.
 
 =back
 
@@ -1245,6 +1388,8 @@ covered by the
 L<Creative Commons Attribution-Share Alike 3.0 License|http://creativecommons.org/licenses/by-sa/3.0/us/legalcode>.
 See the
 L<clarification of the CCA-SA3.0|http://creativecommons.org/licenses/by-sa/3.0/us/>.
+
+Some protocol descriptions taken from text Copyright 2011, Microsoft.
 
 Neither this module nor the L<Author|/Author> is affiliated with Microsoft.
 

@@ -20,7 +20,6 @@ Module::Build->new(
                     'Crypt::DES'      => '2.05',
                     'Crypt::DES_EDE3' => '0.01'
        },
-       create_readme        => 1,
        recursive_test_files => 1,
        meta_merge           => {
            keywords  => [qw[MSN client MSNP21 IM instant message Windows]],

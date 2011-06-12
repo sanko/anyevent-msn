@@ -16,122 +16,6 @@ Synopsis
 Description
     TODO
 
-Methods
-    Well, the public bits anyway...
-
-    new( ... )
-        This constructs a new AnyEvent::MSN object. Required parameters are:
-
-        passport
-            This is an email address.
-
-            Microsoft calls them passports in some documentation but I'm
-            leaning towards the less odd 'username' for this in a future
-            version of the API. Just... keep that in mind.
-
-        password
-            It's... your password.
-
-        Optional parameters to "new" include...
-
-        status
-            This will be used as your initial online status and must be one
-            of the following:
-
-            NLN Make the client appear Online (after logging in) and send
-                and receive notifications about buddies.
-
-                This is the default.
-
-            FLN Make the client Offline. If the client is already online,
-                offline notifications will be sent to users on the RL. No
-                message activity is allowed. In this state, the client can
-                only synchronize the lists as described above.
-
-            HDN Make the client appear Hidden/Invisible. If the client is
-                already online, offline notifications will be sent to users
-                on the RL. The client will appear as Offline to others but
-                can receive online/offline notifications from other users,
-                and can also synchronize the lists. Clients cannot receive
-                any instant messages in this state.
-
-            BSY Make the client appear Busy. This is a sub-state of NLN.
-
-            IDL Make the client appear Idle. This is a sub-state of NLN.
-
-            BRB Make the client say they'll Be Right Back. This is a
-                sub-state of NLN.
-
-            AWY Make the client appear to be Away from their computer. This
-                is a sub-state of NLN.
-
-            PHN Makes the client appear to be on the Phone. This is a
-                sub-state of NLN.
-
-            LUN Makes the client appear to be out to Lunch. This is a
-                sub-state of NLN.
-
-        friendlyname
-            This sets the display or friendly name for the client. This is
-            what your friends see on their buddylists.
-
-        personalmessage
-            This is the short message typically shown below the friendly
-            name.
-
-        no_autoconnect
-            Normally, "AnyEvent::MSN->new( ... )" automatically initiates
-            the client login stage. If this is set to a true value, that
-            doesn't happen and you'll need to call "connect" in connec
-            yourself.
-
-    connect
-        Initiates the logon process. You should only need to call this if
-        you passed "no_autoconnect =" 1> to "new" in the constructor.
-
-Events
-    These are the currently supported events...
-
-    on_connect
-        This is triggered when we have completed the login stage but before
-        we set our initial status.
-
-Notes
-    This is where random stuff will go. The sorts of things which may make
-    life somewhat easier for you but are easily skipped.
-
-  IM/Chat Message Formatting
-    The im method's third parameter '
-
-TODO
-    These are things I have plans to do with AnyEvent::MSN but haven't found
-    the time to complete them. If you'd like to help or have a suggestion
-    for new feature, see the project pages on GitHub
-    <http://github.com/sanko/anyevent-msn>.
-
-    P2P Transfers
-        MSNP supports simple file transfers, handwritten IMs, voice chat,
-        and even webcam sessions through the P2P protocol.
-
-    Group Chat
-        MSNP21 redefinied the switchboard concept including how group chat
-        sessions are initiated and handled.
-
-    Internal State Cleanup
-        Things like the address book are very difficult to use because (for
-        now) I simply store the parsed XML Microsoft sends me.
-
-    Correct Client Capabilities
-        They (and a few other properties) are all hardcoded values taken
-        from MSN 2011 right now.
-
-To Do
-    This is stuff I've yet to do. Obviously.
-
-    p2p This includes file transfers, custom icons, even webcam and audio
-        msgs are build on this. The protocol changed between MSNP18 and
-        MSNP21 I'll get around to it.
-
 See Also
     Net::MSN
     MSN::PersonalMessage
@@ -158,6 +42,8 @@ License and Legal
     <http://creativecommons.org/licenses/by-sa/3.0/us/legalcode>. See the
     clarification of the CCA-SA3.0
     <http://creativecommons.org/licenses/by-sa/3.0/us/>.
+
+    Some protocol descriptions taken from text Copyright 2011, Microsoft.
 
     Neither this module nor the Author is affiliated with Microsoft.
 
