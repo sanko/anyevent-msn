@@ -184,50 +184,45 @@ package AnyEvent::MSN::Protocol 0.001;
         # http://msnpiki.msnfanatic.com/index.php/MSNC:Client_Capabilities
         my $s = shift;
 
-=docs
-
-0x01(CapabilityMobileOnline): This means you are running a Windows Mobile device. The official client changes the little icon to a little man with a phone, and puts the status 'Phone' next to your name.
-0x02(CapabilityMSN8User): This value is set if you are a MSN Explorer 8 user, but it is sometimes used when the client resets its capabilities
-0x04(CapabilityRendersGif): Your client can send/receive Ink (GIF format)
-0x08(CapabilityRendersIsf): Your client can send/recieve Ink (ISF format)
-0x10(CapabilityWebCamDetected): This option is set when you are able to participate in video conversations. In reality, it is only set when you have a webcam connected and have it set to 'shared'.
-0x20(CapabilitySupportsChunking): This value is being used with Multi-Packet Messaging.
-0x40(CapabilityMobileEnabled): This is used when the client is running on a MSN Mobile device. This is equivalent to the MOB setting in the BPR list.
-0x80(CapabilityDirectDevice): This is used when the client is running on a MSN Direct device. This is equivalent to the WWE setting in the BPR list.
-0x200(CapabilityWebIMClient): This is used when someone signs in on the official Web-based MSN Messenger. It will show a new icon in other people's contact list.
-0x800(CapabilityConnectedViaTGW): Internal Microsoft client and/or Microsoft Office Live client (TGWClient).
-0x1000(CapabilityHasSpace): This means you have a MSN Space.
-0x2000(CapabilityMCEUser): This means you are using Windows XP Media Center Edition.
-0x4000(CapabilitySupportsDirectIM): This means you support 'DirectIM' (creating direct connections for conversations rather than using the traditional switchboard)
-0x8000(CapabilitySupportsWinks): This means you support Winks receiving (If not set the official Client will warn with 'contact has an older client and is not capable of receiving Winks')
-0x10000: Your client supports the MSN Search feature
-0x20000(CapabilityIsBot): The client is bot (provisioned account)
-0x40000(CapabilitySupportsVoiceIM): This means you support Voice Clips receiving
-0x80000(CapabilitySupportsSChannel): This means you support Secure Channel Communications
-0x100000(CapabilitySupportsSipInvite): Supports SIP Invitations
-0x200000(CapabilitySupportsTunneledSip): Supports Tunneled SIP
-0x400000(CapabilitySupportsSDrive): Sharing Folders
-0x1000000(CapabilityHasOnecare): The client has OneCare
-0x2000000(CapabilityP2PSupportsTurn): Supports P2P TURN
-0x4000000(CapabilityP2PBootstrapViaUUN): Supports P2P Bootstrap via UUN
-0x10000000(CapabilityMsgrVersion1): Supports MSNC1 (MSN Msgr 6.0)
-0x20000000(CapabilityMsgrVersion2): Supports MSNC2 (MSN Msgr 6.1)
-0x30000000(CapabilityMsgrVersion3): Supports MSNC3 (MSN Msgr 6.2)
-0x40000000(CapabilityMsgrVersion4): Supports MSNC4 (MSN Msgr 7.0)
-0x50000000(CapabilityMsgrVersion5): Supports MSNC5 (MSN Msgr 7.5)
-0x60000000(CapabilityMsgrVersion6): Supports MSNC6 (WL Msgr 8.0)
-0x70000000(CapabilityMsgrVersion7): Supports MSNC7 (WL Msgr 8.1)
-0x80000000(CapabilityMsgrVersion8): Supports MSNC8 (WL Msgr 8.5)
-0x90000000(CapabilityMsgrVersion9): Supports MSNC9 (WL Msgr 9.0)
-0xA0000000(CapabilityMsgrVersion10): Supports MSNC10 (WL Msgr 14.0)
-Note: If you support an MSNC protocol, the official client assumes that you also support all previous MSNC protocols.
-Extended Client Capabilities (from MSNP16)
-
-0x10(CapabilityRTCVideoEnabled): RTC Video enabled
-0x20(CapabilityP2PV2): Supports P2PV2
-Extended capabilities are written after the 'basic' capabilities, seperated by a colon. (capab:excapab) For example 4:48 means that the client can send/receive Ink (GIF format) + RTC Video enabled + Supports P2PV2
-=cut
-
+# 0x01(CapabilityMobileOnline): This means you are running a Windows Mobile device. The official client changes the little icon to a little man with a phone, and puts the status 'Phone' next to your name.
+# 0x02(CapabilityMSN8User): This value is set if you are a MSN Explorer 8 user, but it is sometimes used when the client resets its capabilities
+# 0x04(CapabilityRendersGif): Your client can send/receive Ink (GIF format)
+# 0x08(CapabilityRendersIsf): Your client can send/recieve Ink (ISF format)
+# 0x10(CapabilityWebCamDetected): This option is set when you are able to participate in video conversations. In reality, it is only set when you have a webcam connected and have it set to 'shared'.
+# 0x20(CapabilitySupportsChunking): This value is being used with Multi-Packet Messaging.
+# 0x40(CapabilityMobileEnabled): This is used when the client is running on a MSN Mobile device. This is equivalent to the MOB setting in the BPR list.
+# 0x80(CapabilityDirectDevice): This is used when the client is running on a MSN Direct device. This is equivalent to the WWE setting in the BPR list.
+# 0x200(CapabilityWebIMClient): This is used when someone signs in on the official Web-based MSN Messenger. It will show a new icon in other people's contact list.
+# 0x800(CapabilityConnectedViaTGW): Internal Microsoft client and/or Microsoft Office Live client (TGWClient).
+# 0x1000(CapabilityHasSpace): This means you have a MSN Space.
+# 0x2000(CapabilityMCEUser): This means you are using Windows XP Media Center Edition.
+# 0x4000(CapabilitySupportsDirectIM): This means you support 'DirectIM' (creating direct connections for conversations rather than using the traditional switchboard)
+# 0x8000(CapabilitySupportsWinks): This means you support Winks receiving (If not set the official Client will warn with 'contact has an older client and is not capable of receiving Winks')
+# 0x10000: Your client supports the MSN Search feature
+# 0x20000(CapabilityIsBot): The client is bot (provisioned account)
+# 0x40000(CapabilitySupportsVoiceIM): This means you support Voice Clips receiving
+# 0x80000(CapabilitySupportsSChannel): This means you support Secure Channel Communications
+# 0x100000(CapabilitySupportsSipInvite): Supports SIP Invitations
+# 0x200000(CapabilitySupportsTunneledSip): Supports Tunneled SIP
+# 0x400000(CapabilitySupportsSDrive): Sharing Folders
+# 0x1000000(CapabilityHasOnecare): The client has OneCare
+# 0x2000000(CapabilityP2PSupportsTurn): Supports P2P TURN
+# 0x4000000(CapabilityP2PBootstrapViaUUN): Supports P2P Bootstrap via UUN
+# 0x10000000(CapabilityMsgrVersion1): Supports MSNC1 (MSN Msgr 6.0)
+# 0x20000000(CapabilityMsgrVersion2): Supports MSNC2 (MSN Msgr 6.1)
+# 0x30000000(CapabilityMsgrVersion3): Supports MSNC3 (MSN Msgr 6.2)
+# 0x40000000(CapabilityMsgrVersion4): Supports MSNC4 (MSN Msgr 7.0)
+# 0x50000000(CapabilityMsgrVersion5): Supports MSNC5 (MSN Msgr 7.5)
+# 0x60000000(CapabilityMsgrVersion6): Supports MSNC6 (WL Msgr 8.0)
+# 0x70000000(CapabilityMsgrVersion7): Supports MSNC7 (WL Msgr 8.1)
+# 0x80000000(CapabilityMsgrVersion8): Supports MSNC8 (WL Msgr 8.5)
+# 0x90000000(CapabilityMsgrVersion9): Supports MSNC9 (WL Msgr 9.0)
+# 0xA0000000(CapabilityMsgrVersion10): Supports MSNC10 (WL Msgr 14.0)
+# Note: If you support an MSNC protocol, the official client assumes that you also support all previous MSNC protocols.
+# Extended Client Capabilities (from MSNP16)
+# 0x10(CapabilityRTCVideoEnabled): RTC Video enabled
+# 0x20(CapabilityP2PV2): Supports P2PV2
+# Extended capabilities are written after the 'basic' capabilities, seperated by a colon. (capab:excapab) For example 4:48 means that the client can send/receive Ink (GIF format) + RTC Video enabled + Supports P2PV2
         return;
     }
 
