@@ -1133,7 +1133,7 @@ This is the short message typically shown below the friendly name.
 
 Normally, L<AnyEvent::MSN-E<gt>new( ... )|/new> automatically initiates the
 L<client login|/connect> stage. If this is set to a true value, that doesn't
-happen and you'll need to call L<connec/connect> yourself.
+happen and you'll need to call L<connect|/connect> yourself.
 
 =item on_connect
 
