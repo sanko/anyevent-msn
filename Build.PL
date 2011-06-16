@@ -22,10 +22,10 @@ Module::Build->new(
        },
        recursive_test_files => 1,
        meta_merge           => {
-           keywords  => [qw[MSN client MSNP21 IM instant message Windows]],
+           keywords    => [qw[MSN client MSNP21 IM instant message Windows]],
            resources => {
                bugtracker => 'http://github.com/sanko/anyevent-msn/issues',
-               repository => 'git://github.com/sanko/anyevent-msn.git',
+               repository => 'http://github.com/sanko/anyevent-msn/',
                ChangeLog  => 'http://github.com/sanko/anyevent-msn/commits',
                license => 'http://www.perlfoundation.org/artistic_license_2_0'
            }
