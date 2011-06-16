@@ -382,13 +382,6 @@ package AnyEvent::MSN 0.001;
         }
     }
 
-    sub _handle_packet_qng {
-        my ($s, $next) = @_;
-
-        # PONG in reply to our PNG
-        $s->_set_ping_timer(AE::timer $next, $next, sub { $s->send('PNG') });
-    }
-
     sub _handle_packet_nfy {
         my ($s, $type, $len, $headers, $data) = @_;
 
@@ -408,6 +401,13 @@ package AnyEvent::MSN 0.001;
     sub _handle_packet_not { my $s = shift; }
 
     sub _handle_packet_put {
+    }
+
+    sub _handle_packet_qng {
+        my ($s, $next) = @_;
+
+        # PONG in reply to our PNG
+        $s->_set_ping_timer(AE::timer $next, $next, sub { $s->send('PNG') });
     }
 
     sub _handle_packet_qry {
