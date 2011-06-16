@@ -1,6 +1,4 @@
 #!/usr/bin/perl -I../lib
-use strict;
-use warnings;
 use AnyEvent;
 use AnyEvent::MSN;
 use 5.012;
@@ -30,7 +28,7 @@ my $msn = AnyEvent::MSN->new(
     on_error => sub {
         my ($msn, $msg, $fatal) = @_;
         warn ucfirst sprintf '%serror: %s', ($fatal ? 'fatal ' : ''), $msg;
-        $cv->send if $fatal;
+        $fatal? $cv->send : $msn->connect
     }
 );
 $cv->recv;
