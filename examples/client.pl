@@ -20,7 +20,7 @@ my $msn = AnyEvent::MSN->new(
     on_connect => sub { warn 'Connected as ' . shift->passport },
     on_im      => sub { # simple echo bot
         my ($msn, $head, $body) = @_;
-        $msn->im($head->{From}, $body);
+        $msn->send_messsage($head->{From}, $body);
     },
     on_nudge => sub {
         my ($msn, $head) = @_;

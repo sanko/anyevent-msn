@@ -913,7 +913,7 @@ XML
         );
     }
 
-    sub im {
+    sub send_message {
         my ($s, $to, $msg, $format) = @_;
         $to = '1:' . $to if $to !~ m[^\d+:];
         $format //= 'FN=Segoe%20UI; EF=; CO=0; CS=1; PF=0';
@@ -939,10 +939,30 @@ XML
             sprintf
             qq[Routing: 1.0\r\nTo: %s\r\nFrom: 1:%s;epid=%s\r\n\r\nReliability: 1.0\r\n\r\nMessaging: 2.0\r\nMessage-Type: Nudge\r\nService-Channel: IM/Online\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Length: 0\r\n\r\n],
             $to, $s->passport, $s->guid;
-        $s->send(qq'SDG 0 %d\r\n%s', length($data), $data);
+        $s->send("SDG 0 %d\r\n%s", length($data), $data);
     }
 
     sub add_buddy {
+        my $s = shift;
+        my %contacts;
+        for my $contact (@_) {
+            my ($user, $domain) = split /\@/, $contact, 2;
+            push @{$contacts{$domain}}, $user;
+        }
+        my $data = sprintf '<ml%s>%s</ml>', ($s->connected ? '' : ' l="1"'),
+            join '', map {
+            sprintf '<d n="%s">%s</d>', $_, join '', map {
+                sprintf '<c n="%s" t="1">%s</c>', $_, join '',
+                    map {"<s l='3' n='$_' />"}
+                    qw[IM PE PF]
+                } sort @{$contacts{$_}}
+            } sort keys %contacts;
+        my $tid = $s->tid;
+        $s->send("ADL %d %d\r\n%s", $tid, length($data), $data);
+        $tid;
+    }
+
+    sub remove_buddy {
         my $s = shift;
         my $data = sprintf <<'', reverse split '@', shift, 2;
 <ml>
@@ -1168,13 +1188,13 @@ C<no_autoconnect =E<gt> 1> to L<the constructor|/new>.
 
 =item im
 
-    $msn->im('buddy@hotmail.com', 'oh hai!');
+    $msn->send_message('buddy@hotmail.com', 'oh hai!');
 
 This sends an instant message.
 
-c<im( ... )> supports a third parameter, a string to indicate how the message
-shoud be displayed. The default is C<FN=Segoe%20UI; EF=; CO=0; CS=1; PF=0>.
-Uh, let's break that down a little.
+c<send_message( ... )> supports a third parameter, a string to indicate how
+the message shoud be displayed. The default is
+C<FN=Segoe%20UI; EF=; CO=0; CS=1; PF=0>. Uh, let's break that down a little.
 
 =for url http://msdn.microsoft.com/en-us/library/bb969558(v=office.12).aspx
 
