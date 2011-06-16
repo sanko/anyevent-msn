@@ -974,15 +974,9 @@ XML
         state $xml_twig //= XML::Twig->new();
         $xml_twig->parse(shift);    # build it
         my $xml;
-        try {
-            $xml = $xml_twig->simplify(keyattr  => [qw[type id]],
-                                       var_attr => ['value']);
-        }
-        catch {
-            $s->trigger_error(qq[parsing XML: $_], 1);
-            $xml = {};
-        };
-        $xml;
+        try { $xml = $xml_twig->simplify(keyattr => [qw[type id value]]) }
+        catch { $s->trigger_error(qq[parsing XML: $_], 1) };
+        $xml // {};
     }
 
     # Non-OOP utility functions
