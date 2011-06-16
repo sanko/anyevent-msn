@@ -209,15 +209,20 @@ package AnyEvent::MSN 0.001;
         },
         handles => {'trigger_' . $_ => 'execute_method'},
         )
-        for qw[im nudge
-        error connect];
-  has connected => (
-      is      => 'rw',
-      isa     => 'Bool',
-      traits  => ['Bool'],
-      default => 0,
-      handles => { _set_connected  => 'set', _unset_connected => 'unset' }
-  );
+        for qw[
+        im nudge
+        error connect
+        addressbook_update
+        buddylist_update
+        user_notification
+    ];
+    has connected => (
+             is      => 'rw',
+             isa     => 'Bool',
+             traits  => ['Bool'],
+             default => 0,
+             handles => {_set_connected => 'set', _unset_connected => 'unset'}
+    );
 
     # Auto connect
     sub BUILD {
@@ -404,7 +409,13 @@ package AnyEvent::MSN 0.001;
                     $s->_set_connected();
                     $s->set_status($s->status);    # XXX - Yeah, this is odd
                 }
+                else {
+                    $s->trigger_user_notification($headers, $xml);
+                }
+
+                #
             }
+            default {...}
         }
     }
     sub _handle_packet_not { my $s = shift; }
@@ -530,30 +541,20 @@ XML
                          $s->tid, MIME::Base64::encode_base64($ticket, ''));
 
                 #
-                my %contacts;
-                {
-                    for my $contact (
-                             @{  $s->contacts->{'soap:Body'}
-                                     {'ABFindContactsPagedResponse'}
-                                     {'ABFindContactsPagedResult'}{'Contacts'}
-                                     {'Contact'}
-                             }
-                        )
-                    {   my ($user, $domain) = split /\@/,
-                            $contact->{'contactInfo'}{'passportName'}, 2;
-                        push @{$contacts{$domain}}, $user;
-                    }
-                }
-                my $data = sprintf '<ml l="1">%s</ml>', join '', map {
-                    sprintf '<d n="%s">%s</d>', $_, join '', map {
-                        sprintf
-                            '<c n="%s" t="1"><s l="3" n="IM" /><s l="3" n="PE" /><s l="3" n="PF" /></c>',
-                            $_
-                        } sort @{$contacts{$_}}
-                } sort keys %contacts;
-                $s->send("ADL %d %d\r\n%s", $s->tid, length($data), $data);
+                my $x =    # XML modules get it wrong if we only have 1 buddy
+                    $s->contacts->{'soap:Body'}{'ABFindContactsPagedResponse'}
+                    {'ABFindContactsPagedResult'}{'Contacts'}{'Contact'};
+                $x = [$x] if ref $x ne 'ARRAY';
+                $s->add_buddy(map { $_->{contactInfo}{passportName} } @$x);
             }
         );
+    }
+
+    sub _handle_packet_rml {
+        my ($s, $tid, $ok) = @_;
+        use Data::Dump;
+        ddx \@_;
+        ...;
     }
 
     sub _handle_packet_sbs {
@@ -975,7 +976,9 @@ XML
     </d>
 </ml>
 
-        $s->send("ADL %d %d\r\n%s", $s->tid, length($data), $data);
+        my $tid = $s->tid;
+        $s->send("RML %d %d\r\n%s", $tid, length($data), $data);
+        $tid;
     }
     after set_status => sub {
         my ($s, $status) = @_;
@@ -1179,6 +1182,16 @@ This callback is triggered when we meet any sort of error. This callback is
 passed a texual message for display and an optional second argument which
 indicates that this is a fatal error.
 
+=item on_user_notification
+
+    ...
+    on_user_notification => sub { my ($s, $head, $presence) = @_; ... }
+    ...
+
+This callback is triggered when a contact updates their public information.
+Simple Online/Offline status changes are included in this as well as friendly
+name changes and current media (now playing) status.
+
 =back
 
 =item connect
@@ -1335,6 +1348,17 @@ itself and in pidgin but in the the official client it's called 'Attention'
 and may (depending on the buddy's settings) make the IM window giggle around
 the screen for a second. ...which, I suppose, won the contest for the most
 annoying behaviour they could come up with.
+
+=item remove_buddy
+
+    $msn->remove_buddy('buddy@hotmail.com');
+
+The remove contacts from your lists. Note that you may only remove people from
+the FL, AL and BL using this command (which makes sense, seeing as you can
+also only add people to the FL, AL and BL with the L<add_buddy|/add_buddy>
+command). Also note that the contact will not be removed from your server-side
+address book - for this, you will have to use the ABContactDelete SOAP
+request. ...which we don't support yet.
 
 =back
 
