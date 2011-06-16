@@ -1,7 +1,6 @@
 package AnyEvent::MSN::Protocol 0.001;
 {
     use 5.012;
-    use strict;
     use AnyEvent;
     use MIME::Base64 qw[];
     use Digest::HMAC qw[hmac];
