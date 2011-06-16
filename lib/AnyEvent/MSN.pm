@@ -211,6 +211,13 @@ package AnyEvent::MSN 0.001;
         )
         for qw[im nudge
         error connect];
+  has connected => (
+      is      => 'rw',
+      isa     => 'Bool',
+      traits  => ['Bool'],
+      default => 0,
+      handles => { _set_connected  => 'set', _unset_connected => 'unset' }
+  );
 
     # Auto connect
     sub BUILD {
@@ -222,6 +229,7 @@ package AnyEvent::MSN 0.001;
     sub connect {
         my ($s, $r) = @_;
         $r = " $r" if length $r;
+        $s->_unset_connected;
         $s->_set_handle(
             AnyEvent::Handle->new(
                 connect    => [$s->host, $s->port],
@@ -393,6 +401,7 @@ package AnyEvent::MSN 0.001;
                     && $headers->{From} eq '1:' . $s->passport)
                 {    # Without guid
                     $s->trigger_connect;
+                    $s->_set_connected();
                     $s->set_status($s->status);    # XXX - Yeah, this is odd
                 }
             }
