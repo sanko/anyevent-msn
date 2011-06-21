@@ -1002,13 +1002,15 @@ XML
 
     # Random private methods
     sub _parse_xml {
-        my $s = shift;
+        my ($s, $data) = @_;
         state $xml_twig //= XML::Twig->new();
-        $xml_twig->parse(shift);    # build it
-        my $xml;
-        try { $xml = $xml_twig->simplify(keyattr => [qw[type id value]]) }
+        my $xml = {};
+        try {
+            $xml_twig->parse($data);
+            $xml = $xml_twig->simplify(keyattr => [qw[type id value]]);
+        }
         catch { $s->trigger_error(qq[parsing XML: $_], 1) };
-        $xml // {};
+        $xml;
     }
 
     # Non-OOP utility functions
