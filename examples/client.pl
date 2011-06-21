@@ -28,7 +28,8 @@ my $msn = AnyEvent::MSN->new(
     on_error => sub {
         my ($msn, $msg, $fatal) = @_;
         warn ucfirst sprintf '%serror: %s', ($fatal ? 'fatal ' : ''), $msg;
-        $fatal? $cv->send : $msn->connect
+        return if !$fatal;
+        $msn->connected ? $msn->connect : $cv->send    # auto-reconnect
     }
 );
 $cv->recv;
