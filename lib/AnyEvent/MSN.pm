@@ -306,8 +306,6 @@ package AnyEvent::MSN 0.001;
                     my $h = shift;
                     $s->trigger_error(reverse @_);
                     $h->destroy;
-                    return if !$_[0];
-                    $s->cleanup($_[1]);
                 },
                 on_eof => sub {
                     $_[0]->destroy;
