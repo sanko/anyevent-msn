@@ -154,7 +154,7 @@ package AnyEvent::MSN 0.001;
     # Server configuration
     has policies => (
         is      => 'bare',
-        isa     => 'HashRef[HashRef]',
+        isa     => 'HashRef',
         clearer => '_reset_policies',
         writer  => '_set_policies',
         traits  => ['Hash'],
@@ -182,7 +182,7 @@ package AnyEvent::MSN 0.001;
         }
     );
     has auth_tokens => (is      => 'bare',
-                        isa     => 'HashRef[HashRef]',
+                        isa     => 'HashRef',
                         clearer => '_reset_auth_tokens',
                         writer  => '_set_auth_tokens',
                         traits  => ['Hash'],
