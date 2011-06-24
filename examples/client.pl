@@ -18,7 +18,7 @@ my $msn = AnyEvent::MSN->new(
     on_connect => sub { warn 'Connected as ' . shift->passport },
     on_im      => sub { # simple echo bot
         my ($msn, $head, $body) = @_;
-        $msn->send_messsage($head->{From}, $body);
+        $msn->send_message($head->{From}, $body, $head->{'X-MMS-IM-Format'});
     },
     on_nudge => sub {
         my ($msn, $head) = @_;
@@ -27,9 +27,8 @@ my $msn = AnyEvent::MSN->new(
     },
     on_error => sub {
         my ($msn, $msg) = @_;
-        warn 'Error: '. $msg;
-      },
-
+        warn 'Error: ' . $msg;
+    },
     on_fatal_error => sub {
         my ($msn, $msg, $fatal) = @_;
         warn sprintf 'Fatal error: ' . $msg;
