@@ -26,9 +26,13 @@ my $msn = AnyEvent::MSN->new(
         $msn->nudge($head->{From});
     },
     on_error => sub {
+        my ($msn, $msg) = @_;
+        warn 'Error: '. $msg;
+      },
+
+    on_fatal_error => sub {
         my ($msn, $msg, $fatal) = @_;
-        warn ucfirst sprintf '%serror: %s', ($fatal ? 'fatal ' : ''), $msg;
-        return if !$fatal;
+        warn sprintf 'Fatal error: ' . $msg;
         $msn->connected ? $msn->connect : $cv->send    # auto-reconnect
     }
 );

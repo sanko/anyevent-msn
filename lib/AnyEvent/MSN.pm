@@ -211,7 +211,7 @@ package AnyEvent::MSN 0.001;
         )
         for qw[
         im nudge
-        error connect
+        error fatal_error connect
         addressbook_update
         buddylist_update
         user_notification
@@ -301,10 +301,10 @@ package AnyEvent::MSN 0.001;
                     $s->_set_ping_timer(AE::timer 120,
                                         180, sub { $s->send('PNG') });
                 },
-                on_connect_error => sub { $s->trigger_error(shift, 1) },
+                on_connect_error => sub { $s->trigger_fatal_error(shift) },
                 on_error         => sub {
                     my $h = shift;
-                    $s->trigger_error(reverse @_);
+                    $s->trigger_fatal_error(reverse @_);
                     $h->destroy;
                 },
                 on_eof => sub {
@@ -395,8 +395,9 @@ package AnyEvent::MSN 0.001;
 
     sub _handle_packet_nfy {
         my ($s, $type, $len, $headers, $data) = @_;
-
-        #ddx $type, $len, $headers, $data;
+        use Data::Dump;
+        ddx $type, $len, $headers, $data;
+        ddx $s->_parse_xml($data);
         given ($type) {
             when ('PUT') {
                 my $xml = $s->_parse_xml($data);
@@ -412,6 +413,10 @@ package AnyEvent::MSN 0.001;
                 }
 
                 #
+            }
+            when ('DEL') {
+
+                # Remove from list
             }
             default {...}
         }
@@ -890,11 +895,11 @@ XML
                             && !defined $xml->{'S:Fault'};
 
                     #ddx $hdr;
-                    $s->trigger_error(
+                    $s->trigger_fatal_error(
                            $xml->{'S:Fault'}{'soap:Reason'}{'soap:Text'}
                                {'content'} // $xml->{'S:Fault'}{'faultstring'}
-                               // $hdr->{Reason},
-                           1
+                               // $hdr->{Reason}
+
                     );
                 }
             )
@@ -1007,7 +1012,7 @@ XML
             $xml_twig->parse($data);
             $xml = $xml_twig->simplify(keyattr => [qw[type id value]]);
         }
-        catch { $s->trigger_error(qq[parsing XML: $_], 1) };
+        catch { $s->trigger_fatal_error(qq[parsing XML: $_]) };
         $xml;
     }
 
