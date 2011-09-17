@@ -2,7 +2,7 @@ use AnyEvent;
 use Test::More;
 use lib -f 'BUILD' ? 'lib' : '../../lib';
 use_ok 'AnyEvent::MSN';
-$AnyEvent::MSN::DEBUG++;
+#{package AnyEvent::MSN; $DEBUG=$DEBUG=1;}
 
 my $cv = AnyEvent->condvar;
 my $to =
@@ -14,7 +14,7 @@ my $msn = AnyEvent::MSN->new(
         my $s =  shift;
         pass sprintf 'Connected as %s. Adding self to buddy list...', $s->passport;
         #$cv->send;
-          $s->add_buddy($s->passport);
+          $s->add_contact($s->passport);
         # $s->remove_buddy($s->passport);
     },
     on_error => sub {
@@ -22,7 +22,7 @@ my $msn = AnyEvent::MSN->new(
         diag ucfirst sprintf '%serror: %s', ($fatal ? 'fatal ' : ''), $msg;
         $cv->send;
     },
-    on_user_notification =>sub {shift; use Data::Dump; ddx \@_; ...}
+    on_user_notification =>sub { use Data::Dump; ddx shift->contacts;ddx \@_;  ...}
 );
 $cv->recv;
 done_testing;
