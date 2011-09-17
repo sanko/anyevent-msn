@@ -1016,6 +1016,76 @@ XML
         );
     }
 
+    sub remove_contact {
+        my ($s, $contact) = @_;
+
+        #
+        my $token
+            = $s->auth_token('contacts.msn.com')
+            ->{'wst:RequestedSecurityToken'}{'wsse:BinarySecurityToken'}
+            {content};
+        $token =~ s/&/&amp;/sg;
+        $token =~ s/</&lt;/sg;
+        $token =~ s/>/&gt;/sg;
+        $token =~ s/"/&quot;/sg;
+
+        #
+        $s->_soap_request(
+            'https://contacts.msn.com/abservice/abservice.asmx',
+            {   'content-type' => 'text/xml; charset=utf-8',
+                SOAPAction =>
+                    '"http://www.msn.com/webservices/AddressBook/ABContactDelete"'
+            },
+            sprintf(<<'XML', $token, $contact),
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+   xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+   xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/">
+     <soap:Header>
+        <ABApplicationHeader xmlns="http://www.msn.com/webservices/AddressBook">
+            <ApplicationId>CFE80F9D-180F-4399-82AB-413F33A1FA11</ApplicationId>
+            <IsMigration>false</IsMigration>
+            <PartnerScenario>ContactSave</PartnerScenario>
+        </ABApplicationHeader>
+        <ABAuthHeader xmlns="http://www.msn.com/webservices/AddressBook">
+            <TicketToken>%s</TicketToken>
+            <ManagedGroupRequest>false</ManagedGroupRequest>
+        </ABAuthHeader>
+    </soap:Header>
+ <soap:Body>
+ <ABContactAdd xmlns="http://www.msn.com/webservices/AddressBook">
+            <abId>
+                00000000-0000-0000-0000-000000000000
+            </abId>
+            <contacts>
+                <Contact xmlns="http://www.msn.com/webservices/AddressBook">
+                    <contactInfo>
+                        <contactType>LivePending</contactType>
+                        <passportName>%s</passportName>
+                        <isMessengerUser>true</isMessengerUser>
+                        <MessengerMemberInfo>
+                        <DisplayName>minimum clorpvfgt</DisplayName>
+                        </MessengerMemberInfo>
+                    </contactInfo>
+                </Contact>
+            </contacts>
+            <options>
+                <EnableAllowListManagement>
+                    true
+                </EnableAllowListManagement>
+            </options>
+        </ABContactAdd>
+ </soap:Body>
+</soap:Envelope>
+XML
+            sub {
+                dd @_;
+                $s->remove_temporary_contact($contact);
+                ...;
+            }
+        );
+    }
+
         my $s = shift;
         my %contacts;
         for my $contact (@_) {
