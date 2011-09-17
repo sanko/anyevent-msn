@@ -22,7 +22,7 @@ Module::Build->new(
        },
        recursive_test_files => 1,
        meta_merge           => {
-           keywords    => [qw[MSN client MSNP21 IM instant message Windows]],
+           keywords    => [qw[MSN client MSNP21 IM instant message Windows Live Messenger WLM]],
            resources => {
                bugtracker => 'http://github.com/sanko/anyevent-msn/issues',
                repository => 'http://github.com/sanko/anyevent-msn/',
