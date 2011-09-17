@@ -4,20 +4,26 @@ package AnyEvent::MSN 0.001;
     use 5.012;
     use Moose;
     use Moose::Util::TypeConstraints;
+    use MooseX::Params::Validate;
     use AnyEvent qw[];
     use AnyEvent::Handle qw[];
     use AnyEvent::HTTP qw[];
     use Try::Tiny;
     use XML::Twig;
+    use AnyEvent::MSN::Contact;
     use AnyEvent::MSN::Protocol;
+    use AnyEvent::MSN::Types;
     use MIME::Base64 qw[];
+
+    #
+    use Data::Dump;
 
     #
     our $DEBUG = 0;
     sub DEBUG {$DEBUG}
 
     # XXX - During dev only
-    #use Data::Dump;
+    #use Data::Printer;
     sub DEMOLISH {
         my $s = shift;
         $s->handle->destroy if $s->_has_handle && $s->handle;
@@ -38,39 +44,27 @@ package AnyEvent::MSN 0.001;
 
     # Authentication info from user
     has passport => (
-        is  => 'ro',
-        isa => subtype(
-            as 'Str' => where {
-                my $atom       = qr{[a-zA-Z0-9_!#\$\%&'*+/=?\^`{}~|\-]+};
-                my $dot_atom   = qr{$atom(?:\.$atom)*};
-                my $quoted     = qr{"(?:\\[^\r\n]|[^\\"])*"};
-                my $local      = qr{(?:$dot_atom|$quoted)};
-                my $quotedpair = qr{\\[\x00-\x09\x0B-\x0c\x0e-\x7e]};
-                my $domain_lit =
-                    qr{\[(?:$quotedpair|[\x21-\x5a\x5e-\x7e])*\]};
-                my $domain    = qr{(?:$dot_atom|$domain_lit)};
-                my $addr_spec = qr{$local\@$domain};
-                $_ =~ $addr_spec;
-            } => message {
-                'An MSN Passport looks like an email address: you@hotmail.com';
-            }
-        ),
+        is       => 'ro',
+        isa      => 'AnyEvent::MSN::Types::Passport',
         required => 1,
         handles  => {
-                    username => sub { shift->passport =~ m[^(.+)\@.+$]; $1 },
-                    userhost => sub { shift->passport =~ m[^.+\@(.+)$]; $1 }
+            username => sub {
+                shift->passport =~ m[^(.+)\@.+$];
+                $1;
+            },
+            userhost => sub { shift->passport =~ m[^.+\@(.+)$]; $1 }
         }
     );
     has password => (is => 'ro', isa => 'Str', required => 1);
 
-    # User defined extras
-    has [qw[friendlyname personalmessage]] =>
+    # Extra stuff from user
+    has [qw[friendly_name personal_message]] =>
         (is => 'ro', isa => 'Str', default => '');
     has status => (
-        is      => 'ro',
-        isa     => enum([qw[NLN FLN BSY IDL BRB AWY PHN LUN]]),
-        default => 'NLN',
-        writer => 'set_status'    # exposed publicly
+         is      => 'ro',
+         isa     => 'AnyEvent::MSN::Types::OnlineStatus',
+         default => 'NLN',
+         writer  => 'set_status'                            # exposed publicly
     );
 
     # Client info for MSNP21
@@ -1217,17 +1211,17 @@ This constructs a new L<AnyEvent::MSN> object. Required parameters are:
 
 =over
 
-=item passport
+=item C<passport>
 
 This is an email address.
 
-Microsoft calls them passports in some documentation but I'm leaning towards
-the less odd 'username' for this in a future version of the API. Just... keep
-that in mind.
+Microsoft calls them C<passport>s in some documentation, C<username> and plain
+ol' C<address> in other places. For future versions of the API (think 1.0),
+I'm leaning towards the least awkward: C<username>. Just... keep that in mind.
 
-=item password
+=item C<password>
 
-It's... your password.
+It's... your... password.
 
 =back
 
@@ -1235,10 +1229,160 @@ Optional parameters to C<new> include...
 
 =over
 
-=item status
+=item C<status>
 
-This will be used as your initial online status and must be one of the
-following:
+This will be used as your initial online status. Please see the section
+entitled L<Online Status|/"Online Status"> for more information.
+
+=item C<friendly_name>
+
+This sets the display or friendly name for the client. This is what your
+friends see on their buddylists.
+
+=item C<personal_message>
+
+This is the short message typically shown below the friendly name.
+
+=item C<no_autoconnect>
+
+Normally, L<AnyEvent::MSN-E<gt>new( ... )|/new> automatically initiates the
+L<client login|/connect> stage. If this is set to a true value, that doesn't
+happen and you'll need to call L<connect|/connect> yourself.
+
+=item C<on_connect>
+
+This is callback is triggered when we have completed the login stage but
+before we set our initial status.
+
+=item C<on_im>
+
+This callback is triggered when we receive an instant message. It is passed
+the raw headers (which contain a 'From' value) and the actual message.
+
+=item C<on_nudge>
+
+This callback is triggered when we recieve a nudge. The callback is passed the
+raw headers (which contain a 'From' value).
+
+=item C<on_error>
+
+This callback is triggered when we meet any sort of non-fatal error. This
+callback is passed a texual message for display.
+
+=item C<on_fatal_error>
+
+This callback is triggered when we meet an error which prevents normal client
+operations. This could be a major SOAP error or even an unexpected disconnect.
+This callback is passed a textual message for display.
+
+=item C<on_user_notification>
+
+    ...
+    on_user_notification => sub { my ($s, $head, $presence) = @_; ... }
+    ...
+
+This callback is triggered when a contact updates their public information.
+Simple Online/Offline status changes are included in this as well as friendly
+name changes and current media (now playing) status.
+
+=back
+
+=item connect
+
+Initiates the logon process. You should only need to call this if you passed
+C<no_autoconnect =E<gt> 1> to L<the constructor|/new>.
+
+=item im
+
+    $msn->send_message('buddy@hotmail.com', 'oh hai!');
+
+This sends an instant message.
+
+C<send_message( ... )> supports a third parameter, a string to indicate how
+the message shoud be displayed. The default is
+C<FN=Segoe%20UI; EF=; CO=0; CS=1; PF=0>. Uh, we break that down a little in
+L<the notes|/"Text Format"> below.
+
+=item nudge
+
+    $msn->nudge('buddy@hotmail.com');
+
+This sends a nudge to the other person. It's called nudge in the protocol
+itself and in pidgin but in the the official client it's called 'Attention'
+and may (depending on the buddy's settings) make the IM window jiggle on
+screen for a second. ...which, I suppose, won the contest for the most
+annoying behaviour they could come up with.
+
+=item add_contact
+
+    $msn->add_contact('silas@live.com');   # Temporary
+    $msn->add_contact('mark@hotmail.com'); # Persistant
+
+This adds a buddy to your temporary list of contacts.
+
+'Add List' command, uses XML to identify each contact, and works as a payload
+message. Each ADL command may contain up to 150 contacts (a payload of roughly
+7500 bytes). The format of the payload looks like this:
+<ml l="1">
+    <d n="domain">
+        <c n="email" l="3" t="1" />
+    </d>
+</ml>
+Elements:
+ml: the meaning of l is unknown (thought to mean initial listing due to the
+    fact that it is only sent in the initial ADL)
+d (domain): contacts are grouped by domain, where n is the domain name (the
+    part after the @ symbol in the email address)
+c (contact): n is the name or the part before the @ symbol in the email
+    address, l is the list bit flag (i.e. 1 for FL, 2 for AL, 4 for BL) and t
+    is the contact type (1 for a Passport, 4 for a mobile phone, other values
+    are still unknown)
+Note: you can send all your contacts in just one ADL command by putting
+    multiple 'd' elements (with the sub-elements of course) for each contact
+    e.g.:
+<ml l="1">
+    <d n="domain1">
+        <c n="email1" l="3" t="1" />
+    </d>
+    <d n="domain2">
+        <c n="email2" l="5" t="4" />
+    </d>
+</ml>
+Sending ADL to the server:
+>>> ADL (TrId) (PayloadLength)\r\n
+Then send your payload:
+>>> <ml l="1"><d n="domain"><c n="email" l="3" t="1" /></d></ml>
+The payload must not contain any 'whitespace' characters (i.e. returns, tabs or spaces) between tags or at the beginning or end, or the server will reply with error 240 or 241.
+The server responds to a successful ADL command with:
+ADL (TrId) OK
+Initial ADL listing
+Once the client has retrieved the contact list with a new set of SOAP requests (see MSNP13:Contact_List), it will send the information about the contacts on the list to the server with an ADL command. In this ADL, the <ml> node often seems to contain the attribute l, set to 1. However, the client does not always appear to send this attribute in the official listing!
+You must include everyone on your Forward List (FL), Allow List (AL) and Block List (BL). If you don't, anyone you fail to include will be removed from their respective lists. Also note that the official client does not include contacts on the RL and PL in the initial listing. In fact, if you send the RL and PL bits in the ADL, the server will reject your ADL command, and possibly disconnect you.
+You MUST send your privacy settings (BLP command), then ADL and finally your display name (PRP command) in that order or the server will ignore your ADL. These are retrieved using the ABFindAll SOAP request.
+After receiving ADL (TrId) OK, you must set your initial presence (CHG command). If you send CHG before ADL, the servers will not dispatch your presence to other clients.
+
+=item remove_buddy
+
+    $msn->remove_buddy('buddy@hotmail.com');
+
+The remove contacts from your lists. Note that you may only remove people from
+the FL, AL and BL using this command (which makes sense, seeing as you can
+also only add people to the FL, AL and BL with the L<add_contact|/add_contact>
+command). Also note that the contact will not be removed from your server-side
+address book - for this, you will have to use the ABContactDelete SOAP
+request. ...which we don't support yet.
+
+=back
+
+=head1 Notes
+
+This is where random stuff will go. The sorts of things which may make life
+somewhat easier for you but are easily skipped.
+
+=head2 Online Status
+
+Your online status not only affects your appearance on other's buddylists, but
+can change how your buddies are shown.
 
 =over
 
@@ -1290,75 +1434,21 @@ Makes the client appear to be out to Lunch. This is a sub-state of NLN.
 
 =back
 
-=item friendlyname
-
-This sets the display or friendly name for the client. This is what your
-friends see on their buddylists.
-
-=item personalmessage
-
-This is the short message typically shown below the friendly name.
-
-=item no_autoconnect
-
-Normally, L<AnyEvent::MSN-E<gt>new( ... )|/new> automatically initiates the
-L<client login|/connect> stage. If this is set to a true value, that doesn't
-happen and you'll need to call L<connect|/connect> yourself.
-
-=item on_connect
-
-This is callback is triggered when we have completed the login stage but
-before we set our initial status.
-
-=item on_im
-
-This callback is triggered when we receive an instant message. It is passed
-the raw headers (which contain a 'From' value) and the actual message.
-
-=item on_nudge
-
-This callback is triggered when we recieve a nudge. The callback is passed the
-raw headers (which contain a 'From' value).
-
-=item on_error
-
-This callback is triggered when we meet any sort of error. This callback is
-passed a texual message for display and an optional second argument which
-indicates that this is a fatal error.
-
-=item on_user_notification
-
-    ...
-    on_user_notification => sub { my ($s, $head, $presence) = @_; ... }
-    ...
-
-This callback is triggered when a contact updates their public information.
-Simple Online/Offline status changes are included in this as well as friendly
-name changes and current media (now playing) status.
-
 =back
 
-=item connect
+=head1 Notes
 
-Initiates the logon process. You should only need to call this if you passed
-C<no_autoconnect =E<gt> 1> to L<the constructor|/new>.
+Get by with a little help...
 
-=item im
+=head2 Text Format
 
-    $msn->send_message('buddy@hotmail.com', 'oh hai!');
-
-This sends an instant message.
-
-c<send_message( ... )> supports a third parameter, a string to indicate how
-the message shoud be displayed. The default is
-C<FN=Segoe%20UI; EF=; CO=0; CS=1; PF=0>. Uh, let's break that down a little.
+Messages sent and recieved may contain a special parameter defining how the
+message should be displayed. The message format specifies the font (FN),
+effect (EF), color (CO), character set (CS) and pitch and family (PF) used for
+rendering the text message. The value of the Format element is a string of the
+following key/value pairs:
 
 =for url http://msdn.microsoft.com/en-us/library/bb969558(v=office.12).aspx
-
-The message format specifies the font (FN), effect (EF), color (CO), character
-set (CS) and pitch and family (PF) used for rendering the text message.
-
-The value of the Format element is a string of the following key/value pairs:
 
 =over
 
@@ -1480,36 +1570,6 @@ Below are some PF values and example fonts that fit the category.
     22                      Arial, Verdana, MS Sans Serif, Bitstream Vera Sans
     31                      Courier New, Courier
     42                      Comic Sans MS
-
-=back
-
-=item nudge
-
-    $msn->nudge('buddy@hotmail.com');
-
-This sends a nudge to the other person. It's called nudge in the protocol
-itself and in pidgin but in the the official client it's called 'Attention'
-and may (depending on the buddy's settings) make the IM window giggle around
-the screen for a second. ...which, I suppose, won the contest for the most
-annoying behaviour they could come up with.
-
-=item remove_buddy
-
-    $msn->remove_buddy('buddy@hotmail.com');
-
-The remove contacts from your lists. Note that you may only remove people from
-the FL, AL and BL using this command (which makes sense, seeing as you can
-also only add people to the FL, AL and BL with the L<add_buddy|/add_buddy>
-command). Also note that the contact will not be removed from your server-side
-address book - for this, you will have to use the ABContactDelete SOAP
-request. ...which we don't support yet.
-
-=back
-
-=head1 Notes
-
-This is where random stuff will go. The sorts of things which may make life
-somewhat easier for you but are easily skipped.
 
 =head1 TODO
 
