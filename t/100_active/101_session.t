@@ -2,19 +2,22 @@ use AnyEvent;
 use Test::More;
 use lib -f 'BUILD' ? 'lib' : '../../lib';
 use_ok 'AnyEvent::MSN';
-#{package AnyEvent::MSN; $DEBUG=$DEBUG=1;}
 
+#{package AnyEvent::MSN; $DEBUG=$DEBUG=1;}
 my $cv = AnyEvent->condvar;
-my $to =
-    AnyEvent->timer(after => 60, cb => sub { diag 'Timeout!'; $cv->send });
+my $to
+    = AnyEvent->timer(after => 60, cb => sub { diag 'Timeout!'; $cv->send });
 my $msn = AnyEvent::MSN->new(
     passport   => 'anyevent_msn@hotmail.com',
     password   => 'public',
     on_connect => sub {
-        my $s =  shift;
-        pass sprintf 'Connected as %s. Adding self to buddy list...', $s->passport;
+        my $s = shift;
+        pass sprintf 'Connected as %s. Adding self to buddy list...',
+            $s->passport;
+
         #$cv->send;
-          $s->add_contact($s->passport);
+        $s->add_contact($s->passport);
+
         # $s->remove_buddy($s->passport);
     },
     on_error => sub {
@@ -22,7 +25,8 @@ my $msn = AnyEvent::MSN->new(
         diag ucfirst sprintf '%serror: %s', ($fatal ? 'fatal ' : ''), $msg;
         $cv->send;
     },
-    on_user_notification =>sub { use Data::Dump; ddx shift->contacts;ddx \@_;  ...}
+    on_user_notification =>
+        sub { use Data::Dump; ddx shift->contacts; ddx \@_; ... }
 );
 $cv->recv;
 done_testing;

@@ -34,8 +34,7 @@ package AnyEvent::MSN::Protocol 0.001;
                 split qr[\015?\012],
                 shift;
         };
-        my ($h1, $h2, $h3, $body) =
-            split qr[\015?\012\015?\012], shift, 4;
+        my ($h1, $h2, $h3, $body) = split qr[\015?\012\015?\012], shift, 4;
         ({map { $hp->($_) }
           grep { defined && length } $h1, $h2, $h3
          },
@@ -99,8 +98,8 @@ package AnyEvent::MSN::Protocol 0.001;
         my ($chldata, $prodid, $prodkey) = @_;
 
  # Create an MD5 hash out of the given data, then form 32 bit integers from it
-        my @md5hash =
-            unpack("a16a16", Digest::MD5::md5_hex("$chldata$prodkey"));
+        my @md5hash
+            = unpack("a16a16", Digest::MD5::md5_hex("$chldata$prodkey"));
         my @md5parts = MD5HashToInt("$md5hash[0]$md5hash[1]");
 
 # Then create a valid productid string, divisable by 8, then form 32 bit integers from it

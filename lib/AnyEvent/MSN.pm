@@ -211,11 +211,18 @@ package AnyEvent::MSN 0.001;
         user_notification
     ];
     has connected => (
-             is      => 'rw',
+             is      => 'ro',
              isa     => 'Bool',
              traits  => ['Bool'],
              default => 0,
              handles => {_set_connected => 'set', _unset_connected => 'unset'}
+    );
+    has redirect => (
+         is        => 'ro',
+         isa       => 'Str',
+         predicate => '_has_redirect',
+         writer    => '_set_redirect',
+         clearer   => '_reset_redirect'    # XXX - Currently unused internally
     );
 
     # Auto connect
@@ -226,8 +233,7 @@ package AnyEvent::MSN 0.001;
     }
 
     sub connect {
-        my ($s, $r) = @_;
-        $r = " $r" if length $r;
+        my $s = shift;
         $s->_unset_connected;
         $s->_set_handle(
             AnyEvent::Handle->new(
@@ -238,14 +244,14 @@ package AnyEvent::MSN 0.001;
                     $s->handle->push_read(
                         'AnyEvent::MSN::Protocol' => sub {
                             my ($cmd, $tid, @data) = @_;
-                            my $method =
-                                $s->can('_handle_packet_' . lc($cmd));
+                            my $method
+                                = $s->can('_handle_packet_' . lc($cmd));
                             $method ||= sub {
                                 $s->_trigger_error(
                                             'Unhandled command type: ' . $cmd,
                                             0);
                             };
-                            if ($cmd =~ m[^(?:GCF|MSG|NFY|NOT|SDG|UBX)$])
+                            if ($cmd =~ m[^(?:GCF|MSG|NFY|NOT|SDG|UBX|PUT)$])
                             {    # payload types
                                 $s->handle->unshift_read(
                                     chunk => $data[-1] // $tid, # GFC:0, MSG:2
@@ -255,8 +261,8 @@ package AnyEvent::MSN 0.001;
                                             $tid, @data,
                                             $cmd =~ m[GCF]
                                             ? $s->_parse_xml($_c)
-                                            : $cmd =~ m[(?:MSG|NFY|SDG)]
-                                            ? AnyEvent::MSN::Protocol::__parse_msn_headers(
+                                            : $cmd =~ m[(?:MSG|NFY|SDG)] ?
+                                                AnyEvent::MSN::Protocol::__parse_msn_headers(
                                                                           $_c)
                                             : $_c
                                         );
@@ -264,7 +270,7 @@ package AnyEvent::MSN 0.001;
                                 );
                             }
                             elsif ($cmd =~ m[^\d+$]) {    # Error!
-                                $s->trigger_error(
+                                $s->_trigger_error(
                                              AnyEvent::MSN::Protocol::err2str(
                                                                    $cmd, @data
                                              )
@@ -288,17 +294,19 @@ package AnyEvent::MSN 0.001;
                              $s->client_version,
                              $s->client_string,
                              $s->passport,
-                             ($r // ' 0')
+                             (' ' . ($s->_has_redirect ? $s->redirect : ' 0')
+                             )
                     );
 
                     # Schedule first PNG in two mins
                     $s->_set_ping_timer(AE::timer 120,
                                         180, sub { $s->send('PNG') });
                 },
-                on_connect_error => sub { $s->trigger_fatal_error(shift) },
-                on_error         => sub {
+                on_connect_error =>
+                    sub { shift; $s->_trigger_fatal_error(shift) },
+                on_error => sub {
                     my $h = shift;
-                    $s->trigger_fatal_error(reverse @_);
+                    $s->_trigger_fatal_error(reverse @_);
                     $h->destroy;
                 },
                 on_eof => sub {
@@ -383,39 +391,47 @@ package AnyEvent::MSN 0.001;
             when (m[text/x-msmsgsinitialmdatanotification]) {
                 warn 'You\'ve got mail!/aol'
             }
-            default { $s->trigger_error('Unknown message type: ' . $_) }
+            default { $s->_trigger_error('Unknown message type: ' . $_) }
         }
     }
 
     sub _handle_packet_nfy {
         my ($s, $type, $len, $headers, $data) = @_;
-        use Data::Dump;
-        ddx $type, $len, $headers, $data;
-        ddx $s->_parse_xml($data);
-        given ($type) {
-            when ('PUT') {
-                my $xml = $s->_parse_xml($data);
-                if ((!defined $headers->{By})
-                    && $headers->{From} eq '1:' . $s->passport)
-                {    # Without guid
-                    $s->trigger_connect;
-                    $s->_set_connected();
-                    $s->set_status($s->status);    # XXX - Yeah, this is odd
-                }
-                else {
-                    $s->trigger_user_notification($headers, $xml);
-                }
+        use Data::Printer;
+        dd $type, $len, $headers, $data;
+        dd $s->_parse_xml($data);
+        given ($headers->{Uri}) {
+            when ('/user') {
+                given ($type) {
+                    when ('PUT') {
+                        my $xml = $s->_parse_xml($data);
+                        if ((!defined $headers->{By})
+                            && $headers->{From} eq '1:' . $s->passport)
+                        {    # Without guid
+                            $s->set_status($s->status)
+                                ;    # Not fully logged in until sent
+                            $s->_set_connected();
+                            $s->_trigger_connect;
+                        }
+                        else {
+                            $s->_trigger_user_notification($headers, $xml);
+                        }
+                    }
+                    when ('DEL') {
 
-                #
+                        # Remove from list
+                    }
+                    default {...}
+                }
             }
-            when ('DEL') {
-
-                # Remove from list
+            when ('/circle') {
+                ...
             }
             default {...}
         }
     }
     sub _handle_packet_not { my $s = shift; }
+    sub _handle_packet_out { my $s = shift; }
 
     sub _handle_packet_put {
     }
@@ -431,8 +447,8 @@ package AnyEvent::MSN 0.001;
         my ($s, $tid) = @_;
 
         #
-        my $token =
-            $s->auth_token('contacts.msn.com')
+        my $token
+            = $s->auth_token('contacts.msn.com')
             ->{'wst:RequestedSecurityToken'}{'wsse:BinarySecurityToken'}
             {content};
         $token =~ s/&/&amp;/sg;
@@ -441,7 +457,7 @@ package AnyEvent::MSN 0.001;
         $token =~ s/"/&quot;/sg;
 
         # Reply to good challenge. Expect no body.
-        $s->soap_request(
+        $s->_soap_request(
             'https://contacts.msn.com:443/abservice/SharingService.asmx',
             {   'content-type' => 'text/xml; charset=utf-8',
                 SOAPAction =>
@@ -482,10 +498,10 @@ XML
                 #...
             }
         );
-        $s->soap_request(
+        $s->_soap_request(
             'https://contacts.msn.com/abservice/abservice.asmx',
             {   'content-type' => 'text/xml; charset=utf-8',
-                'SOAPAction' =>
+                SOAPAction =>
                     '"http://www.msn.com/webservices/AddressBook/ABFindContactsPaged"'
             },
             sprintf(<<'XML', $token),
@@ -530,7 +546,8 @@ XML
 
                 # XXX - Do something with these contacts
                 $s->_set_contacts($contacts);
-                my $ticket = __html_unescape(
+                my $ticket
+                    = __html_unescape(
                     $s->contacts->{'soap:Body'}{'ABFindContactsPagedResponse'}
                         {'ABFindContactsPagedResult'}{'CircleResult'}
                         {'CircleTicket'});
@@ -542,15 +559,16 @@ XML
                     $s->contacts->{'soap:Body'}{'ABFindContactsPagedResponse'}
                     {'ABFindContactsPagedResult'}{'Contacts'}{'Contact'};
                 $x = [$x] if ref $x ne 'ARRAY';
-                $s->add_buddy(map { $_->{contactInfo}{passportName} } @$x);
+                $s->add_temporary_contact(
+                                 map { $_->{contactInfo}{passportName} } @$x);
             }
         );
     }
 
     sub _handle_packet_rml {
         my ($s, $tid, $ok) = @_;
-        use Data::Dump;
-        ddx \@_;
+        use Data::Printer;
+        dd @_;
         ...;
     }
 
@@ -562,20 +580,19 @@ XML
 
     sub _handle_packet_sdg {
         my ($s, $tid, $size, $head, $body) = @_;
-
-        #ddx [$head, $body];
+        dd [$head, $body];
         given ($head->{'Message-Type'}) {
             when ('Text') {
                 given ($head->{'Service-Channel'}) {
-                    $s->trigger_im($head, $body) when 'IM/Online';
-                    $s->trigger_im($head, $body) when undef;
+                    $s->_trigger_im($head, $body) when 'IM/Online';
+                    $s->_trigger_im($head, $body) when undef;
                     warn 'Offline Msg!' when 'IM/Offline';
                     default {
                         warn 'unknown IM!!!!!'
                     }
                 }
             }
-            $s->trigger_nudge($head) when 'Nudge';
+            $s->_trigger_nudge($head) when 'Nudge';
             when ('Wink')           { warn 'Wink' }
             when ('CustomEmoticon') { warn 'Custom Emoticon' }
             when ('Control/Typing') { warn 'Typing!' }
@@ -620,8 +637,8 @@ XML
                      ),
                      $packet
                     ) = unpack 'NNa8a8NNNNa8a*', $body;
-                    ($packet, $footer) =
-                        unpack 'a' . (_quad($total_size)) . ' a', $packet;
+                    ($packet, $footer)
+                        = unpack 'a' . (_quad($total_size)) . ' a', $packet;
                     $header = {sessionid     => $sessionid,
                                identifier    => $identifier,
                                offset        => _quad($offset),
@@ -658,7 +675,7 @@ XML
 # BYTE[DHL-8] Data packets TLVs: if (DHL>8) then read bytes(DHL - 8). T=0x1(1) L=0x8(8): Data remaining.
 # D	 ML-DHL	Data Packet	 SLP messsage or data packet
 # F	 DWORD	Footer	 The footer.
-#ddx $body;
+                    p $body;
                     my ($hl, $op, $ml, $baseid, $etc) = unpack 'CCnNa*',
                         $body;
                     warn sprintf 'HL     = %d',      $hl;
@@ -681,8 +698,8 @@ XML
                         my ($t, $v, $m) = unpack 'CC/a', shift;
                         { shift // (), t => $t, v => $v, $m ? _tlv($m) : () }
                     }
-                    my ($dhlen, $tf_combo, $pac, $ses, $XXX) =
-                        unpack 'CCnNa*', $moar;
+                    my ($dhlen, $tf_combo, $pac, $ses, $XXX)
+                        = unpack 'CCnNa*', $moar;
                     warn length($moar);
                     ($packet, $footer) = unpack 'a' . ($ml - $dhlen) . 'a*',
                         $XXX
@@ -701,17 +718,17 @@ XML
 
                     #
                 }
+                dd $header;
 
-                #ddx $header;
-                #ddx($packet =~ m[^(.+?)\r\n(.+)\r\n\r\n(.)$]s);
-                my ($p2p_action, $p2p_head, $p2p_body) =
-                    ($packet =~ m[^(.+?)\r\n(.+)\r\n\r\n(.)$]s);
+                #p($packet =~ m[^(.+?)\r\n(.+)\r\n\r\n(.)$]s);
+                my ($p2p_action, $p2p_head, $p2p_body)
+                    = ($packet =~ m[^(.+?)\r\n(.+)\r\n\r\n(.)$]s);
+                dd $head, $p2p_action,
 
-                #ddx $head, $p2p_action,
-                #    AnyEvent::MSN::Protocol::__parse_msn_headers($p2p_head),
-                #    $p2p_body;
-                #warn 'Data'
-                # XXX - trigger a callback of some sort
+                 #    AnyEvent::MSN::Protocol::__parse_msn_headers($p2p_head),
+                 #    $p2p_body;
+                 #warn 'Data'
+                 # XXX - trigger a callback of some sort
             }
             when ('Signal/P2P')              { warn 'P2P' }
             when ('Signal/ForceAbchSync')    { }
@@ -744,9 +761,10 @@ XML
                 <wsse:PolicyReference URI="%s"></wsse:PolicyReference>
             </wst:RequestSecurityToken>
 TOKEN
-            $s->soap_request(
+            $s->_soap_request(
                 ($s->passport =~ m[\@msn.com$]i
-                 ? 'https://msnia.login.live.com/pp550/RST.srf'
+                 ?
+                     'https://msnia.login.live.com/pp550/RST.srf'
                  : 'https://login.live.com/RST.srf'
                 ),
                 {},    # headers
@@ -792,7 +810,8 @@ XML
                     if ($policy =~ m[MBI]) {
                         my $token = $s->auth_token('messengerclear.live.com')
                             ;    # or http://Passport.NET/tb
-                        my $token_ = __html_escape(
+                        my $token_
+                            = __html_escape(
                                  $token->{'wst:RequestedSecurityToken'}
                                      {'wsse:BinarySecurityToken'}{'content'});
                         $s->send('USR %d SSO S %s %s %s',
@@ -828,10 +847,9 @@ XML
         if ($len == 0 && $passport eq '1:' . $s->passport) {
         }
         else {
-
-            #ddx $xml;
+            dd $xml;
             my ($user) = ($passport =~ m[:(.+)$]);
-            $s->_add_contact($user, $xml);
+            $s->_add_temporary_contact($user, $xml);
         }
     }
 
@@ -851,7 +869,8 @@ XML
         my ($host, $port) = ($addr =~ m[^(.+):(\d+)$]);
         $s->_set_host($host);
         $s->_set_port($port);
-        $s->connect($redirect);
+        $s->_set_redirect($redirect);
+        $s->connect;
     }
 
     # SOAP client
@@ -863,7 +882,7 @@ XML
                           }
     );
 
-    sub soap_request {
+    sub _soap_request {
         my ($s, $uri, $headers, $content, $cb) = @_;
         my %headers = ('user-agent' => 'MSNPM 1.0',
                        'content-type' =>
@@ -871,6 +890,7 @@ XML
                        'Expect'     => '100-continue',
                        'connection' => 'Keep-Alive'
         );
+        warn $content;
         @headers{keys %$headers} = values %$headers;
         $s->_add_soap_request(
             $uri,
@@ -887,14 +907,13 @@ XML
                     return $cb->($xml)
                         if $hdr->{Status} =~ /^2/
                             && !defined $xml->{'S:Fault'};
-
-                    #ddx $hdr;
-                    $s->trigger_fatal_error(
-                           $xml->{'S:Fault'}{'soap:Reason'}{'soap:Text'}
-                               {'content'} // $xml->{'S:Fault'}{'faultstring'}
-                               // $hdr->{Reason}
-
-                    );
+                    dd $hdr;
+                    dd $xml;
+                    $s->_trigger_error(
+                              $xml->{'soap:Body'}{'soap:Fault'}{'soap:Reason'}
+                                  {'soap:Text'}{'content'}
+                                  // $xml->{'soap:Body'}{'soap:Fault'}
+                                  {'faultstring'} // $hdr->{Reason});
                 }
             )
         );
@@ -909,6 +928,7 @@ XML
                 $s->handle->destroy;
             }
         );
+        $s->_clear_redirect;    # Start from scratch next time
     }
 
     sub send_message {
@@ -923,8 +943,8 @@ XML
         # - I for Italics
         #　- S for Strikethrough
         # CO: Color (hex without #)
-        my $data =
-            sprintf
+        my $data
+            = sprintf
             qq[Routing: 1.0\r\nTo: %s\r\nFrom: 1:%s;epid=%s\r\n\r\nReliability: 1.0\r\n\r\nMessaging: 2.0\r\nMessage-Type: Text\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Length: %d\r\nX-MMS-IM-Format: %s\r\n\r\n%s],
             $to, $s->passport, $s->guid, length($msg), $format, $msg;
         $s->send(qq'SDG 0 %d\r\n%s', length($data), $data);
@@ -933,8 +953,8 @@ XML
     sub nudge {
         my ($s, $to) = @_;
         $to = '1:' . $to if $to !~ m[^\d+:];
-        my $data =
-            sprintf
+        my $data
+            = sprintf
             qq[Routing: 1.0\r\nTo: %s\r\nFrom: 1:%s;epid=%s\r\n\r\nReliability: 1.0\r\n\r\nMessaging: 2.0\r\nMessage-Type: Nudge\r\nService-Channel: IM/Online\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Length: 0\r\n\r\n],
             $to, $s->passport, $s->guid;
         $s->send("SDG 0 %d\r\n%s", length($data), $data);
@@ -1080,6 +1100,7 @@ XML
         );
     }
 
+    sub add_temporary_contact {
         my $s = shift;
         my %contacts;
         for my $contact (@_) {
@@ -1124,17 +1145,28 @@ XML
             . '<sep n="PD"><ClientType>1</ClientType><EpName>%s</EpName><Idle>false</Idle><State>%s</State></sep>'
             . '<sep n="PE" epid="%s"><VER>MSNMSGR:15.4.3508.1109</VER><TYP>1</TYP><Capabilities>2952790016:557056</Capabilities></sep>'
             . '<sep n="IM"><Capabilities>2953838624:132096</Capabilities></sep>'
-            . '</user>', __html_escape($s->friendlyname),
-            __html_escape($s->personalmessage),
+            . '</user>', __html_escape($s->friendly_name),
+            __html_escape($s->personal_message),
             $status,
             __html_escape($s->location), $status, $s->guid;
-        my $out =
-            sprintf
+        my $out
+            = sprintf
             qq[To: 1:%s\r\nRouting: 1.0\r\nFrom: 1:%s;epid=%s\r\n\r\nStream: 1\r\nFlags: ACK\r\nReliability: 1.0\r\n\r\nContent-Length: %d\r\nContent-Type: application/user+xml\r\nPublication: 1.0\r\nUri: /user\r\n\r\n%s],
             $s->passport,
             $s->passport, $s->guid, length($body), $body;
         $s->send("PUT %d %d\r\n%s", $s->tid, length($out), $out);
     };
+
+    # Testing/Incomplete stuff
+    sub create_group_chat {
+        my $s    = shift;
+        my $body = '';      # For now.
+        my $out
+            = sprintf
+            qq[To: 10:00000000-0000-0000-0000-000000000000\@live.com\r\nRouting: 1.0\r\nFrom: 1:%s;epid=%s\r\n\r\nStream: 1\r\nFlags: ACK\r\nReliability: 1.0\r\n\r\nContent-Length: %d\r\nContent-Type: application/multiparty+xml\r\nPublication: 1.0\r\nUri: /circle\r\n\r\n%s],
+            $s->passport, $s->guid, length($body), $body;
+        $s->send("PUT %d %d\r\n%s", $s->tid, length($out), $out);
+    }
 
     # Random private methods
     sub _parse_xml {
@@ -1177,7 +1209,7 @@ XML
 
 =head1 NAME
 
-AnyEvent::MSN - Exactly what you're expecting...
+AnyEvent::MSN - Simple, Less Annoying Client for Microsoft's Windows Live Messenger Network
 
 =head1 Synopsis
 
@@ -1195,7 +1227,6 @@ AnyEvent::MSN - Exactly what you're expecting...
 =head1 Description
 
 TODO
-
 
 =head1 Methods
 

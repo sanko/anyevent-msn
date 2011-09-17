@@ -3,9 +3,12 @@ use AnyEvent;
 use AnyEvent::MSN;
 use 5.012;
 $|++;
+$AnyEvent::MSN::DEBUG++;
 my ($user, $pass) = @ARGV;    # XXX - Better to use a GetOpt-like module
 my $cv = AnyEvent->condvar;
 my $reconnect_timer;
+
+#
 my $msn = AnyEvent::MSN->new(
     passport => $user,  # XXX - I may change the name of this arg before pause
     password => $pass,
@@ -16,10 +19,48 @@ my $msn = AnyEvent::MSN->new(
     personalmessage => 'This can\'t be life!',
 
     # Basic events
-    on_connect => sub { warn 'Connected as ' . shift->passport },
-    on_im      => sub { # simple echo bot
+    on_connect => sub {
+        my $msn = shift;
+        warn 'Connected as ' . $msn->passport;
+
+        #$msn->add_contact('junk@penilecolada.com');
+        #$msn->send_message('junk@penilecolada.com', 'Test');
+    },
+    on_im => sub {    # simple echo bot
         my ($msn, $head, $body) = @_;
         $msn->send_message($head->{From}, $body, $head->{'X-MMS-IM-Format'});
+        given ($body) {
+            when (/^status (...)$/) {
+                use Try::Tiny;
+                try { $msn->set_status($1) } catch { warn $_ };
+            }
+            when (/^add (.+)$/) {
+                warn 'Adding ' . $1;
+                $msn->add_contact($1);
+            }
+            when (/^remove (.+)$/) {
+                warn 'Removing ' . $1;
+                $msn->remove_contact($1);
+            }
+            when (/^circle (.+)$/) {
+                $msn->create_group_chat;
+
+=fdas
+PUT 35 260
+Routing: 1.0
+From: 1:testmsnpsharp@live.cn;epid={ad9d9247-9181-4c57-8388-248304e153d3}
+To: 10:00000000-0000-0000-0000-000000000000@live.com
+
+Reliability: 1.0
+
+Publication: 1.0
+Content-Length: 0
+Content-Type: application/multiparty+xml
+Uri: /circle
+=cut
+
+            }
+        }
     },
     on_nudge => sub {
         my ($msn, $head) = @_;
@@ -40,7 +81,11 @@ my $msn = AnyEvent::MSN->new(
             }
     }
 );
-$cv->recv;
+$cv->wait;
+
+# SOAP stuff: http://telepathy.freedesktop.org/wiki/Pymsn/MSNP/ContactListActions
+# http://imfreedom.org/wiki/MSN
+# http://msnpiki.msnfanatic.com/index.php/MSNP13:Contact_Membership
 
 =pod
 

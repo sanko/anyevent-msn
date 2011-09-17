@@ -1,6 +1,5 @@
 use strict;
 use Test::More;
-
 use lib -f 'BUILD' ? 'lib' : '../../lib';
 use_ok 'AnyEvent::MSN';
 done_testing;
