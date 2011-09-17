@@ -5,6 +5,7 @@ use 5.012;
 $|++;
 my ($user, $pass) = @ARGV;    # XXX - Better to use a GetOpt-like module
 my $cv = AnyEvent->condvar;
+my $reconnect_timer;
 my $msn = AnyEvent::MSN->new(
     passport => $user,  # XXX - I may change the name of this arg before pause
     password => $pass,
@@ -32,7 +33,11 @@ my $msn = AnyEvent::MSN->new(
     on_fatal_error => sub {
         my ($msn, $msg, $fatal) = @_;
         warn sprintf 'Fatal error: ' . $msg;
-        $msn->connected ? $msn->connect : $cv->send    # auto-reconnect
+        $reconnect_timer = AE::timer 30, 60, sub {
+            return $msn->connect if $msn->connected;
+            $reconnect_timer = () if $msn->connected;
+            $cv->send;
+            }
     }
 );
 $cv->recv;
