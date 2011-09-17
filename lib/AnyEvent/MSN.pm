@@ -141,7 +141,7 @@ package AnyEvent::MSN 0.001;
     sub _build_tid {0}
     after tid => sub { shift->_inc_tid };    # Auto inc
     has ping_timer => (is     => 'ro',
-                       isa    => 'ArrayRef',                # AE::timer
+                       isa    => 'Ref',                     # AE::timer
                        writer => '_set_ping_timer'
     );
 
@@ -201,7 +201,7 @@ package AnyEvent::MSN 0.001;
         default => sub {
             sub {1}
         },
-        handles => {'trigger_' . $_ => 'execute_method'},
+        handles => {'_trigger_' . $_ => 'execute_method'},
         )
         for qw[
         im nudge
@@ -241,7 +241,7 @@ package AnyEvent::MSN 0.001;
                             my $method =
                                 $s->can('_handle_packet_' . lc($cmd));
                             $method ||= sub {
-                                $s->trigger_error(
+                                $s->_trigger_error(
                                             'Unhandled command type: ' . $cmd,
                                             0);
                             };
@@ -1145,7 +1145,7 @@ XML
             $xml_twig->parse($data);
             $xml = $xml_twig->simplify(keyattr => [qw[type id value]]);
         }
-        catch { $s->trigger_fatal_error(qq[parsing XML: $_]) };
+        catch { $s->_trigger_fatal_error(qq[parsing XML: $_]) };
         $xml;
     }
 
