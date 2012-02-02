@@ -977,7 +977,7 @@ XML
 
         #
         $s->_soap_request(
-            'https://contacts.msn.com/abservice/abservice.asmx',
+            'https://local-bay.contacts.msn.com/abservice/abservice.asmx',
             {   'content-type' => 'text/xml; charset=utf-8',
                 SOAPAction =>
                     '"http://www.msn.com/webservices/AddressBook/ABContactAdd"'
