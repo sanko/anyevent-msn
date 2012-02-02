@@ -1,4 +1,5 @@
-package AnyEvent::MSN 0.001;
+package AnyEvent::MSN;
+{ $AnyEvent::MSN::VERSION = 0.002 }
 {
     use lib '../../lib';
     use 5.012;
@@ -1656,7 +1657,7 @@ CPAN ID: SANKO
 
 =head1 License and Legal
 
-Copyright (C) 2011 by Sanko Robinson <sanko@cpan.org>
+Copyright (C) 2011-2012 by Sanko Robinson <sanko@cpan.org>
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of
