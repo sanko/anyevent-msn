@@ -458,7 +458,7 @@ package AnyEvent::MSN 0.001;
 
         # Reply to good challenge. Expect no body.
         $s->_soap_request(
-            'https://contacts.msn.com:443/abservice/SharingService.asmx',
+            'https://local-bay.contacts.msn.com/abservice/SharingService.asmx',
             {   'content-type' => 'text/xml; charset=utf-8',
                 SOAPAction =>
                     '"http://www.msn.com/webservices/AddressBook/FindMembership"'
@@ -499,7 +499,7 @@ XML
             }
         );
         $s->_soap_request(
-            'https://contacts.msn.com/abservice/abservice.asmx',
+            'https://local-bay.contacts.msn.com/abservice/abservice.asmx',
             {   'content-type' => 'text/xml; charset=utf-8',
                 SOAPAction =>
                     '"http://www.msn.com/webservices/AddressBook/ABFindContactsPaged"'
