@@ -74,9 +74,8 @@ Uri: /circle
     on_fatal_error => sub {
         my ($msn, $msg, $fatal) = @_;
         warn sprintf 'Fatal error: ' . $msg;
-        $reconnect_timer = AE::timer 30, 60, sub {
+        $reconnect_timer = AE::timer 30, 0, sub {
             return $msn->connect if $msn->connected;
-            $reconnect_timer = () if $msn->connected;
             $cv->send;
             }
     }
