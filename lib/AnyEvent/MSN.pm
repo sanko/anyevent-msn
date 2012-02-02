@@ -283,21 +283,8 @@ package AnyEvent::MSN;
                         }
                     );
 
-                    # Send version negotiation and basic client info
+                    # Send version negotiation
                     $s->send('VER %d %s CVR0', $s->tid, $s->protocol_version);
-                    $s->send('CVR %d %s %s %s %s %s %s %s %s%s',
-                             $s->tid,
-                             $s->locale_id,
-                             $s->os_type,
-                             $s->os_ver,
-                             $s->arch,
-                             $s->client_name,
-                             $s->client_version,
-                             $s->client_string,
-                             $s->passport,
-                             (' ' . ($s->_has_redirect ? $s->redirect : ' 0')
-                             )
-                    );
 
                     # Schedule first PNG in two mins
                     $s->_set_ping_timer(AE::timer 120,
@@ -860,6 +847,20 @@ XML
     sub _handle_packet_ver {    # Negotiated protocol version
         my ($s, $tid, $r) = @_;
         $s->_set_protocol_version($r);
+
+        # Send basic client info
+        $s->send('CVR %d %s %s %s %s %s %s %s %s%s',
+                 $s->tid,
+                 $s->locale_id,
+                 $s->os_type,
+                 $s->os_ver,
+                 $s->arch,
+                 $s->client_name,
+                 $s->client_version,
+                 $s->client_string,
+                 $s->passport,
+                 (' ' . ($s->_has_redirect ? $s->redirect : ' 0'))
+        );
     }
 
     sub _handle_packet_xfr {    # Transver to another switchboard
