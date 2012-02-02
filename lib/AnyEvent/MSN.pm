@@ -5,7 +5,6 @@ package AnyEvent::MSN;
     use 5.012;
     use Moose;
     use Moose::Util::TypeConstraints;
-    use MooseX::Params::Validate;
     use AnyEvent qw[];
     use AnyEvent::Handle qw[];
     use AnyEvent::HTTP qw[];
