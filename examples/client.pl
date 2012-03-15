@@ -6,6 +6,8 @@ $|++;
 $AnyEvent::MSN::DEBUG++;
 my ($user, $pass) = @ARGV;    # XXX - Better to use a GetOpt-like module
 my $cv = AnyEvent->condvar;
+($user, $pass) = ('anyevent_msn@hotmail.com', 'public');
+($user, $pass) = ('msn@penilecolada.com',     'password');
 my $reconnect_timer;
 
 #
@@ -23,8 +25,8 @@ my $msn = AnyEvent::MSN->new(
         my $msn = shift;
         warn 'Connected as ' . $msn->passport;
 
-        #$msn->add_contact('junk@penilecolada.com');
-        #$msn->send_message('junk@penilecolada.com', 'Test');
+        $msn->add_contact('msn@propernoun.com');
+        $msn->send_message('msn@propernoun.com', 'Hi?');
     },
     on_im => sub {    # simple echo bot
         my ($msn, $head, $body) = @_;
@@ -66,6 +68,10 @@ Uri: /circle
         my ($msn, $head) = @_;
         warn $head->{From} . ' just nudged us';
         $msn->nudge($head->{From});
+    },
+    on_create_circle=>sub{
+
+        warn 'NEW CIRCLE!!!!!';
     },
     on_error => sub {
         my ($msn, $msg) = @_;

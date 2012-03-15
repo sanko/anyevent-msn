@@ -1,456 +1,456 @@
 package AnyEvent::MSN;
 { $AnyEvent::MSN::VERSION = 0.002 }
-{
-    use lib '../../lib';
-    use 5.012;
-    use Moose;
-    use Moose::Util::TypeConstraints;
-    use AnyEvent qw[];
-    use AnyEvent::Handle qw[];
-    use AnyEvent::HTTP qw[];
-    use Try::Tiny;
-    use XML::Twig;
-    use AnyEvent::MSN::Contact;
-    use AnyEvent::MSN::Protocol;
-    use AnyEvent::MSN::Types;
-    use MIME::Base64 qw[];
+use lib '../../lib';
+use 5.012;
+use Moose;
+use Moose::Util::TypeConstraints;
+use AnyEvent qw[];
+use AnyEvent::Handle qw[];
+use AnyEvent::HTTP qw[];
+use Try::Tiny;
+use XML::Twig;
+use AnyEvent::MSN::Protocol;
+use AnyEvent::MSN::Types;
+use MIME::Base64 qw[];
 
-    #
-    use Data::Dump;
+#
+#use Data::Dump;
+#
+our $DEBUG = 0;
+sub DEBUG {$DEBUG}
 
-    #
-    our $DEBUG = 0;
-    sub DEBUG {$DEBUG}
+# XXX - During dev only
+#use Data::Printer;
+sub DEMOLISH {
+    my $s = shift;
+    $s->handle->destroy if $s->_has_handle && $s->handle;
+    $s->_clear_soap_requests;
+}
 
-    # XXX - During dev only
-    #use Data::Printer;
-    sub DEMOLISH {
-        my $s = shift;
-        $s->handle->destroy if $s->_has_handle && $s->handle;
-        $s->_clear_soap_requests;
+# Basic connection info
+has host => (is      => 'ro',
+             writer  => '_set_host',
+             isa     => 'Str',
+             default => 'messenger.hotmail.com'
+);
+has port => (is      => 'ro',
+             writer  => '_set_port',
+             isa     => 'Int',
+             default => 1863
+);
+
+# Authentication info from user
+has passport => (
+    is       => 'ro',
+    isa      => 'AnyEvent::MSN::Types::Passport',
+    required => 1,
+    handles  => {
+        username => sub {
+            shift->passport =~ m[^(.+)\@.+$];
+            $1;
+        },
+        userhost => sub { shift->passport =~ m[^.+\@(.+)$]; $1 }
     }
+);
+has password => (is => 'ro', isa => 'Str', required => 1);
 
-    # Basic connection info
-    has host => (is      => 'ro',
-                 writer  => '_set_host',
-                 isa     => 'Str',
-                 default => 'messenger.hotmail.com'
-    );
-    has port => (is      => 'ro',
-                 writer  => '_set_port',
-                 isa     => 'Int',
-                 default => 1863
-    );
-
-    # Authentication info from user
-    has passport => (
-        is       => 'ro',
-        isa      => 'AnyEvent::MSN::Types::Passport',
-        required => 1,
-        handles  => {
-            username => sub {
-                shift->passport =~ m[^(.+)\@.+$];
-                $1;
-            },
-            userhost => sub { shift->passport =~ m[^.+\@(.+)$]; $1 }
-        }
-    );
-    has password => (is => 'ro', isa => 'Str', required => 1);
-
-    # Extra stuff from user
-    has [qw[friendly_name personal_message]] =>
-        (is => 'ro', isa => 'Str', default => '');
-    has status => (
+# Extra stuff from user
+has [qw[friendly_name personal_message]] =>
+    (is => 'ro', isa => 'Str', default => '');
+has status => (
          is      => 'ro',
          isa     => 'AnyEvent::MSN::Types::OnlineStatus',
          default => 'NLN',
          writer  => 'set_status'                            # exposed publicly
-    );
+);
 
-    # Client info for MSNP21
-    has protocol_version => (
-        is  => 'ro',
-        isa => subtype(
-            as 'Str' => where {m[^(?:MSNP\d+\s*)+$]} => message {
-                'Protocol versions look like: MSNP18 MSNP21';
-            }
-        ),
-        writer  => '_set_protocol_version',
-        clearer => '_reset_protocol_version',
-        default => 'MSNP21',
-        lazy    => 1
-    );
-    map { has $_->[0] => (is => 'ro', isa => 'Str', default => $_->[1]) }
-        [qw[product_id PROD0120PW!CCV9@]],
-        [qw[product_key C1BX{V4W}Q3*10SM]],
-        [qw[locale_id 0x0409]],
-        [qw[os_type winnt]],
-        [qw[os_ver 6.1.1]],
-        [qw[arch i386]],
-        [qw[client_name MSNMSGR]],
-        [qw[client_version 15.4.3508.1109]],
-        [qw[client_string MSNMSGR]];
-    has guid => (
-        is     => 'ro',
-        => isa => subtype(
-            as 'Str' => where {
-                my $hex = qr[[\da-f]];
-                m[{$hex{8}(?:-$hex{4}){3}-$hex{12}}$];
-            } => message {
-                'Malformed GUID. Should look like: {12345678-abcd-1234-abcd-123456789abc}';
-            }
-        ),
-        builder => '_build_guid'
-    );
+# Client info for MSNP21
+has protocol_version => (
+    is  => 'ro',
+    isa => subtype(
+        as 'Str' => where {m[^(?:MSNP\d+\s*)+$]} => message {
+            'Protocol versions look like: MSNP18 MSNP21';
+        }
+    ),
+    writer  => '_set_protocol_version',
+    clearer => '_reset_protocol_version',
+    default => 'MSNP21',
+    lazy    => 1
+);
+map { has $_->[0] => (is => 'ro', isa => 'Str', default => $_->[1]) }
+    [qw[product_id PROD0120PW!CCV9@]],
+    [qw[product_key C1BX{V4W}Q3*10SM]],
+    [qw[locale_id 0x0409]],
+    [qw[os_type winnt]],
+    [qw[os_ver 6.1.1]],
+    [qw[arch i386]],
+    [qw[client_name MSNMSGR]],
+    [qw[client_version 15.4.3508.1109]],
+    [qw[client_string MSNMSGR]];
+has guid => (
+    is     => 'ro',
+    => isa => subtype(
+        as 'Str' => where {
+            my $hex = qr[[\da-f]];
+            m[{$hex{8}(?:-$hex{4}){3}-$hex{12}}$];
+        } => message {
+            'Malformed GUID. Should look like: {12345678-abcd-1234-abcd-123456789abc}';
+        }
+    ),
+    builder => '_build_guid'
+);
 
-    sub _build_guid {
-        state $r //= sub {
-            join '', map { ('a' .. 'f', 0 .. 9)[rand 15] } 1 .. shift;
-        };
-        sprintf '{%8s-%4s-%4s-%4s-%12s}', $r->(8), $r->(4), $r->(4), $r->(4),
-            $r->(12);
+sub _build_guid {
+    state $r //= sub {
+        join '', map { ('a' .. 'f', 0 .. 9)[rand 15] } 1 .. shift;
+    };
+    sprintf '{%8s-%4s-%4s-%4s-%12s}', $r->(8), $r->(4), $r->(4), $r->(4),
+        $r->(12);
+}
+has location => (is => 'ro', isa => 'Str', default => 'Perl/AnyEvent::MSN');
+
+# Internals
+has handle => (
+    is  => 'ro',
+    isa => 'Object',
+
+    # weak_ref  => 1,
+    predicate => '_has_handle',
+    writer    => '_set_handle',
+    clearer   => '_reset_handle',
+    handles   => {
+        send => sub {
+            my $s = shift;
+            $s->handle->push_write('AnyEvent::MSN::Protocol' => @_)
+                if $s->_has_handle;    # XXX - Else mention it...
+            }
     }
-    has location =>
-        (is => 'ro', isa => 'Str', default => 'Perl/AnyEvent::MSN');
+);
+has tid => (is      => 'ro',
+            isa     => 'Int',
+            lazy    => 1,
+            clearer => '_reset_tid',
+            builder => '_build_tid',
+            traits  => ['Counter'],
+            handles => {'_inc_tid' => 'inc'}
+);
+sub _build_tid {0}
+after tid => sub { shift->_inc_tid };    # Auto inc
+has ping_timer => (is     => 'ro',
+                   isa    => 'Ref',                     # AE::timer
+                   writer => '_set_ping_timer'
+);
 
-    # Internals
-    has handle => (
-        is  => 'ro',
-        isa => 'Object',
+# Server configuration
+has policies => (
+    is      => 'bare',
+    isa     => 'HashRef',
+    clearer => '_reset_policies',
+    writer  => '_set_policies',
+    traits  => ['Hash'],
+    handles => {_add_policy => 'set',
+                _del_policy => 'delete',
+                policy      => 'get',
+                policies    => 'kv'        # XXX - Really?
+    }
+);
 
-        # weak_ref  => 1,
-        predicate => '_has_handle',
-        writer    => '_set_handle',
-        clearer   => '_reset_handle',
-        handles   => {
-            send => sub {
-                my $s = shift;
-                $s->handle->push_write('AnyEvent::MSN::Protocol' => @_)
-                    if $s->_has_handle;    # XXX - Else mention it...
-                }
-        }
-    );
-    has tid => (is      => 'ro',
-                isa     => 'Int',
-                lazy    => 1,
-                clearer => '_reset_tid',
-                builder => '_build_tid',
-                traits  => ['Counter'],
-                handles => {'_inc_tid' => 'inc'}
-    );
-    sub _build_tid {0}
-    after tid => sub { shift->_inc_tid };    # Auto inc
-    has ping_timer => (is     => 'ro',
-                       isa    => 'Ref',                     # AE::timer
-                       writer => '_set_ping_timer'
-    );
+# SOAP
+has SSOsites => (
+    is      => 'ro',                   # Single Sign On
+    isa     => 'ArrayRef[ArrayRef]',
+    traits  => ['Array'],
+    default => sub {
+        [['http://Passport.NET/tb',   ''],
+         ['messengerclear.live.com',  'MBI_KEY_OLD'],
+         ['messenger.msn.com',        '?id=507'],
+         ['messengersecure.live.com', 'MBI_SSL'],
+         ['contacts.msn.com',         'MBI'],
+         ['storage.msn.com',          'MBI'],
+         ['sup.live.com',             'MBI']
+        ];
+    }
+);
+has auth_tokens => (is      => 'bare',
+                    isa     => 'HashRef',
+                    clearer => '_reset_auth_tokens',
+                    writer  => '_set_auth_tokens',
+                    traits  => ['Hash'],
+                    handles => {_add_auth_token => 'set',
+                                _del_auth_token => 'delete',
+                                auth_token      => 'get',
+                                auth_tokens     => 'kv'
+                    }
+);
+has contacts => (is      => 'ro',
+                 isa     => 'HashRef',
+                 clearer => '_reset_contacts',
+                 writer  => '_set_contacts',
+                 traits  => ['Hash'],
+);
 
-    # Server configuration
-    has policies => (
-        is      => 'bare',
-        isa     => 'HashRef',
-        clearer => '_reset_policies',
-        writer  => '_set_policies',
-        traits  => ['Hash'],
-        handles => {_add_policy => 'set',
-                    _del_policy => 'delete',
-                    policy      => 'get',
-                    policies    => 'kv'        # XXX - Really?
-        }
-    );
-
-    # SOAP
-    has SSOsites => (
-        is      => 'ro',                   # Single Sign On
-        isa     => 'ArrayRef[ArrayRef]',
-        traits  => ['Array'],
-        default => sub {
-            [['http://Passport.NET/tb',   ''],
-             ['messengerclear.live.com',  'MBI_KEY_OLD'],
-             ['messenger.msn.com',        '?id=507'],
-             ['messengersecure.live.com', 'MBI_SSL'],
-             ['contacts.msn.com',         'MBI'],
-             ['storage.msn.com',          'MBI'],
-             ['sup.live.com',             'MBI']
-            ];
-        }
-    );
-    has auth_tokens => (is      => 'bare',
-                        isa     => 'HashRef',
-                        clearer => '_reset_auth_tokens',
-                        writer  => '_set_auth_tokens',
-                        traits  => ['Hash'],
-                        handles => {_add_auth_token => 'set',
-                                    _del_auth_token => 'delete',
-                                    auth_token      => 'get',
-                                    auth_tokens     => 'kv'
-                        }
-    );
-    has contacts => (is      => 'ro',
-                     isa     => 'HashRef',
-                     clearer => '_reset_contacts',
-                     writer  => '_set_contacts',
-                     traits  => ['Hash'],
-    );
-
-    # Simple callbacks
-    has 'on_' . $_ => (
-        traits  => ['Code'],
-        is      => 'ro',
-        isa     => 'CodeRef',
-        default => sub {
-            sub {1}
-        },
-        handles => {'_trigger_' . $_ => 'execute_method'},
-        )
-        for qw[
-        im nudge
-        error fatal_error connect
-        addressbook_update
-        buddylist_update
-        user_notification
-    ];
-    has connected => (
+# Simple callbacks
+has 'on_' . $_ => (
+    traits  => ['Code'],
+    is      => 'ro',
+    isa     => 'CodeRef',
+    default => sub {
+        sub {1}
+    },
+    handles => {'_trigger_' . $_ => 'execute_method'},
+    )
+    for qw[
+    im nudge
+    error fatal_error connect
+    addressbook_update
+    buddylist_update
+    user_notification
+    create_circle
+];
+has connected => (
              is      => 'ro',
              isa     => 'Bool',
              traits  => ['Bool'],
              default => 0,
              handles => {_set_connected => 'set', _unset_connected => 'unset'}
-    );
-    has redirect => (
+);
+has redirect => (
          is        => 'ro',
          isa       => 'Str',
          predicate => '_has_redirect',
          writer    => '_set_redirect',
          clearer   => '_reset_redirect'    # XXX - Currently unused internally
-    );
+);
 
-    # Auto connect
-    sub BUILD {
-        my ($s, $p) = @_;
-        return if $p->{no_autoconnect};
-        $s->connect;
-    }
+# Auto connect
+sub BUILD {
+    my ($s, $p) = @_;
+    return if $p->{no_autoconnect};
+    $s->connect;
+}
 
-    sub connect {
-        my $s = shift;
-        $s->_unset_connected;
-        $s->_set_handle(
-            AnyEvent::Handle->new(
-                connect    => [$s->host, $s->port],
-                on_connect => sub {
+sub connect {
+    my $s = shift;
+    $s->_unset_connected;
+    $s->_set_handle(
+        AnyEvent::Handle->new(
+            connect    => [$s->host, $s->port],
+            on_connect => sub {
 
-                    # Get ready to read data from server
-                    $s->handle->push_read(
-                        'AnyEvent::MSN::Protocol' => sub {
-                            my ($cmd, $tid, @data) = @_;
-                            my $method
-                                = $s->can('_handle_packet_' . lc($cmd));
-                            $method ||= sub {
-                                $s->_trigger_error(
+                # Get ready to read data from server
+                $s->handle->push_read(
+                    'AnyEvent::MSN::Protocol' => sub {
+                        my ($cmd, $tid, @data) = @_;
+                        my $method = $s->can('_handle_packet_' . lc($cmd));
+                        $method ||= sub {
+                            $s->_trigger_error(
                                             'Unhandled command type: ' . $cmd,
                                             0);
-                            };
-                            if ($cmd =~ m[^(?:GCF|MSG|NFY|NOT|SDG|UBX|PUT)$])
-                            {    # payload types
-                                $s->handle->unshift_read(
-                                    chunk => $data[-1] // $tid, # GFC:0, MSG:2
-                                    sub {
-                                        my ($_h, $_c) = @_;
-                                        $s->$method(
-                                            $tid, @data,
-                                            $cmd =~ m[GCF]
-                                            ? $s->_parse_xml($_c)
-                                            : $cmd =~ m[(?:MSG|NFY|SDG)] ?
-                                                AnyEvent::MSN::Protocol::__parse_msn_headers(
+                        };
+                        if ($cmd =~ m[^(?:GCF|MSG|NFY|NOT|SDG|UBX|PUT)$])
+                        {    # payload types
+                            $s->handle->unshift_read(
+                                chunk => $data[-1] // $tid,    # GFC:0, MSG:2
+                                sub {
+                                    my ($_h, $_c) = @_;
+                                    $s->$method(
+                                        $tid, @data,
+                                        $cmd =~ m[GCF] ? $s->_parse_xml($_c)
+                                        : $cmd =~ m[(?:MSG|NFY|SDG)] ?
+                                            AnyEvent::MSN::Protocol::__parse_msn_headers(
                                                                           $_c)
-                                            : $_c
-                                        );
-                                    }
-                                );
-                            }
-                            elsif ($cmd =~ m[^\d+$]) {    # Error!
-                                $s->_trigger_error(
-                                             AnyEvent::MSN::Protocol::err2str(
-                                                                   $cmd, @data
-                                             )
-                                );
-                            }
-                            else {
-                                $s->$method($tid, @data);
-                            }
+                                        : $_c
+                                    );
+                                }
+                            );
                         }
-                    );
+                        elsif ($cmd =~ m[^\d+$]) {    # Error!
+                            $s->_trigger_error(
+                                 AnyEvent::MSN::Protocol::err2str($cmd, @data)
+                            );
+                        }
+                        else {
+                            $s->$method($tid, @data);
+                        }
+                    }
+                );
 
-                    # Send version negotiation
-                    $s->send('VER %d %s CVR0', $s->tid, $s->protocol_version);
+                # Send version negotiation
+                $s->send('VER %d %s CVR0', $s->tid, $s->protocol_version);
 
-                    # Schedule first PNG in two mins
-                    $s->_set_ping_timer(AE::timer 120,
-                                        180, sub { $s->send('PNG') });
-                },
-                on_connect_error =>
-                    sub { shift; $s->_trigger_fatal_error(shift) },
-                on_error => sub {
-                    my $h = shift;
-                    $s->_trigger_fatal_error(reverse @_);
-                    $h->destroy;
-                },
-                on_eof => sub {
-                    $_[0]->destroy;
-                    $s->cleanup('connection closed');
-                }
-            )
-        );
+                # Schedule first PNG in two mins
+                $s->_set_ping_timer(AE::timer 120,
+                                    180, sub { $s->send('PNG') });
+            },
+            on_connect_error =>
+                sub { shift; $s->_trigger_fatal_error(shift) },
+            on_error => sub {
+                my $h = shift;
+                $s->_trigger_fatal_error(reverse @_);
+                $h->destroy;
+            },
+            on_eof => sub {
+                $_[0]->destroy;
+                $s->cleanup('connection closed');
+            }
+        )
+    );
+}
+
+# Commands from notification server
+sub _handle_packet_adl {
+    my $s = shift;
+
+    # ACK for outgoing ADL
+    # $s->send('BLP %d AL', $s->tid);
+}
+
+sub _handle_packet_chl {    # Official client challenge
+    my ($s, $tid, @data) = @_;
+    my $data =
+        AnyEvent::MSN::Protocol::CreateQRYHash($data[0], $s->product_id,
+                                               $s->product_key);
+    $s->send("QRY %d %s %d\r\n%s",
+             $s->tid, $s->product_id, length($data), $data);
+}
+
+sub _handle_packet_cvr {    # Client version recommendation
+    my ($s, $tid, $r, $min_a, $min_b, $url_dl, $url_info) = @_;
+
+    # We don't do anything with this yet but...
+    # The first parameter is a recommended version of
+    # the client for you to use, or "1.0.0000" if your
+    #   client information is not recognised.
+    # The second parameter is identical to the first.
+    # The third parameter is the minimum version of the
+    #   client it's safe for you to use, or the current
+    #   version if your client information is not
+    #   recognised.
+    # The fourth parameter is a URL you can download the
+    #   recommended version of the client from.
+    # The fifth parameter is a URL the user can go to to
+    #   get more information about the client.
+    $s->send('USR %d SSO I %s', $s->tid, $s->passport);
+}
+
+sub _handle_packet_gcf {    # Get config
+    my ($s, $tid, $len, $r) = @_;
+    if ($tid == 0) {        # probably Policy list
+        $s->_set_policies($r->{Policy});
+
+        #for (@{$s->policy('SHIELDS')->{config}{block}{regexp}{imtext}}) {
+        #    my $regex = MIME::Base64::decode_base64($_);
+        #    warn 'Blocking ' . qr[$regex];
+        #}
     }
-
-    # Commands from notification server
-    sub _handle_packet_adl {
-        my $s = shift;
-
-        # ACK for outgoing ADL
-        # $s->send('BLP %d AL', $s->tid);
+    else {
+        ...;
     }
+}
 
-    sub _handle_packet_chl {    # Official client challenge
-        my ($s, $tid, @data) = @_;
-        my $data =
-            AnyEvent::MSN::Protocol::CreateQRYHash($data[0], $s->product_id,
-                                                   $s->product_key);
-        $s->send("QRY %d %s %d\r\n%s",
-                 $s->tid, $s->product_id, length($data), $data);
-    }
-
-    sub _handle_packet_cvr {    # Client version recommendation
-        my ($s, $tid, $r, $min_a, $min_b, $url_dl, $url_info) = @_;
-
-        # We don't do anything with this yet but...
-        # The first parameter is a recommended version of
-        # the client for you to use, or "1.0.0000" if your
-        #   client information is not recognised.
-        # The second parameter is identical to the first.
-        # The third parameter is the minimum version of the
-        #   client it's safe for you to use, or the current
-        #   version if your client information is not
-        #   recognised.
-        # The fourth parameter is a URL you can download the
-        #   recommended version of the client from.
-        # The fifth parameter is a URL the user can go to to
-        #   get more information about the client.
-        $s->send('USR %d SSO I %s', $s->tid, $s->passport);
-    }
-
-    sub _handle_packet_gcf {    # Get config
-        my ($s, $tid, $len, $r) = @_;
-        if ($tid == 0) {        # probably Policy list
-            $s->_set_policies($r->{Policy});
-
-            #for (@{$s->policy('SHIELDS')->{config}{block}{regexp}{imtext}}) {
-            #    my $regex = MIME::Base64::decode_base64($_);
-            #    warn 'Blocking ' . qr[$regex];
-            #}
-        }
-        else {
-            ...;
-        }
-    }
-
-    sub _handle_packet_msg {
-        my ($s, $from, $about, $len, $head, $body) = @_;
-        given ($head->{'Content-Type'}) {
-            when (m[text/x-msmsgsprofile]) {
+sub _handle_packet_msg {
+    my ($s, $from, $about, $len, $head, $body) = @_;
+    given ($head->{'Content-Type'}) {
+        when (m[text/x-msmsgsprofile]) {
 
      #
      # http://msnpiki.msnfanatic.com/index.php/MSNP8:Messages#Profile_Messages
      # My profile message. Expect no body.
-            }
-            when (m[text/x-msmsgsinitialmdatanotification]) { # Expect no body
-            }
-            when (m[text/x-msmsgsoimnotification]) {
-
-                # Offline Message Waiting.
-                # Expect no body
-                # XXX - How do I request it?
-            }
-            when (m[text/x-msmsgsactivemailnotification]) {
-                warn 'You\'ve got mail!/aol'
-            }
-            when (m[text/x-msmsgsinitialmdatanotification]) {
-                warn 'You\'ve got mail!/aol'
-            }
-            default { $s->_trigger_error('Unknown message type: ' . $_) }
         }
-    }
+        when (m[text/x-msmsgsinitialmdatanotification]) {    # Expect no body
+        }
+        when (m[text/x-msmsgsoimnotification]) {
 
-    sub _handle_packet_nfy {
-        my ($s, $type, $len, $headers, $data) = @_;
+            # Offline Message Waiting.
+            # Expect no body
+            # XXX - How do I request it?
+        }
+        when (m[text/x-msmsgsactivemailnotification]) {
+
+            #warn 'You\'ve got mail!/aol'
+        }
+        when (m[text/x-msmsgsinitialmdatanotification]) {
+
+            #warn 'You\'ve got mail!/aol'
+        }
+        default { $s->_trigger_error('Unknown message type: ' . $_) }
+    }
+}
+
+sub _handle_packet_nfy {
+    my ($s, $type, $len, $headers, $data) = @_;
+
+=begin comment
         use Data::Printer;
         dd $type, $len, $headers, $data;
         dd $s->_parse_xml($data);
-        given ($headers->{Uri}) {
-            when ('/user') {
-                given ($type) {
-                    when ('PUT') {
-                        my $xml = $s->_parse_xml($data);
-                        if ((!defined $headers->{By})
-                            && $headers->{From} eq '1:' . $s->passport)
-                        {    # Without guid
-                            $s->set_status($s->status)
-                                ;    # Not fully logged in until sent
-                            $s->_set_connected();
-                            $s->_trigger_connect;
-                        }
-                        else {
-                            $s->_trigger_user_notification($headers, $xml);
-                        }
+=cut
+    given ($headers->{Uri}) {
+        when ('/user') {
+            given ($type) {
+                when ('PUT') {
+                    my $xml = $s->_parse_xml($data);
+                    if ((!defined $headers->{By})
+                        && $headers->{From} eq '1:' . $s->passport)
+                    {    # Without guid
+                        $s->set_status($s->status)
+                            ;    # Not fully logged in until sent
+                        $s->_set_connected();
+                        $s->_trigger_connect;
                     }
-                    when ('DEL') {
-
-                        # Remove from list
+                    else {
+                        $s->_trigger_user_notification($headers, $xml);
                     }
-                    default {...}
                 }
+                when ('DEL') {
+
+                    # Remove from list
+                }
+                default {...}
             }
-            when ('/circle') {
-                ...
-            }
-            default {...}
         }
+        when ('/circle') {
+            my $xml = $s->_parse_xml($data);
+            $s->_trigger_create_circle($headers, $xml);
+        }
+        default {...}
     }
-    sub _handle_packet_not { my $s = shift; }
-    sub _handle_packet_out { my $s = shift; }
+}
+sub _handle_packet_not { my $s = shift; }
+sub _handle_packet_out { my $s = shift; }
 
-    sub _handle_packet_put {
-    }
+sub _handle_packet_put {
+    my $s = shift;
 
-    sub _handle_packet_qng {
-        my ($s, $next) = @_;
+    # ACK for our PUT packets
+}
 
-        # PONG in reply to our PNG
-        $s->_set_ping_timer(AE::timer $next, $next, sub { $s->send('PNG') });
-    }
+sub _handle_packet_qng {
+    my ($s, $next) = @_;
 
-    sub _handle_packet_qry {
-        my ($s, $tid) = @_;
+    # PONG in reply to our PNG
+    $s->_set_ping_timer(AE::timer $next, $next, sub { $s->send('PNG') });
+}
 
-        #
-        my $token
-            = $s->auth_token('contacts.msn.com')
-            ->{'wst:RequestedSecurityToken'}{'wsse:BinarySecurityToken'}
-            {content};
-        $token =~ s/&/&amp;/sg;
-        $token =~ s/</&lt;/sg;
-        $token =~ s/>/&gt;/sg;
-        $token =~ s/"/&quot;/sg;
+sub _handle_packet_qry {
+    my ($s, $tid) = @_;
 
-        # Reply to good challenge. Expect no body.
-        $s->_soap_request(
-            'https://local-bay.contacts.msn.com/abservice/SharingService.asmx',
-            {   'content-type' => 'text/xml; charset=utf-8',
-                SOAPAction =>
-                    '"http://www.msn.com/webservices/AddressBook/FindMembership"'
-            },
-            sprintf(<<'XML', $token),
+    #
+    my $token = $s->auth_token('contacts.msn.com')
+        ->{'wst:RequestedSecurityToken'}{'wsse:BinarySecurityToken'}{content};
+    $token =~ s/&/&amp;/sg;
+    $token =~ s/</&lt;/sg;
+    $token =~ s/>/&gt;/sg;
+    $token =~ s/"/&quot;/sg;
+
+    # Reply to good challenge. Expect no body.
+    $s->_soap_request(
+        'https://local-bay.contacts.msn.com/abservice/SharingService.asmx',
+        {   'content-type' => 'text/xml; charset=utf-8',
+            SOAPAction =>
+                '"http://www.msn.com/webservices/AddressBook/FindMembership"'
+        },
+        sprintf(<<'XML', $token),
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
     <soap:Header>
         <ABApplicationHeader xmlns="http://www.msn.com/webservices/AddressBook">
@@ -478,25 +478,24 @@ package AnyEvent::MSN;
     </soap:Body>
 </soap:Envelope>
 XML
-            sub {
-                my $contacts = shift;
+        sub {
+            my $contacts = shift;
 
-                # XXX - Do something with these contacts
-                #...
-            }
-        );
-        $s->_soap_request(
-            'https://local-bay.contacts.msn.com/abservice/abservice.asmx',
-            {   'content-type' => 'text/xml; charset=utf-8',
-                SOAPAction =>
-                    '"http://www.msn.com/webservices/AddressBook/ABFindContactsPaged"'
-            },
-            sprintf(<<'XML', $token),
+            # XXX - Do something with these contacts
+            #...
+        }
+    );
+    $s->_soap_request(
+        'https://local-bay.contacts.msn.com/abservice/abservice.asmx',
+        {   'content-type' => 'text/xml; charset=utf-8',
+            SOAPAction =>
+                '"http://www.msn.com/webservices/AddressBook/ABFindContactsPaged"'
+        },
+        sprintf(<<'XML', $token),
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
     <soap:Header>
         <ABApplicationHeader xmlns="http://www.msn.com/webservices/AddressBook">
             <ApplicationId>3794391A-4816-4BAC-B34B-6EC7FB5046C6</ApplicationId>
-            <CacheKey>14r2;Y+G87laDsL3ATl8gJ3C4pPjoMLk5J/tyZUSb1cwTnKI1GlRcRHu65X3d3uqDPuH2pkfTOntU7zMUk9k2dFQwYcre4UXElvfdhjc5KYfm8oZftprkw69TgDuQLTZg4mMoayTnE388tJx4Z8Cx0iLxP/HvZHwsVnrC9RQ6k4aJ8wM=</CacheKey>
             <IsMigration>false</IsMigration>
             <PartnerScenario>Initial</PartnerScenario>
         </ABApplicationHeader>
@@ -528,64 +527,68 @@ XML
     </soap:Body>
 </soap:Envelope>
 XML
-            sub {
-                my $contacts = shift;
+        sub {
+            my $contacts = shift;
 
-                # XXX - Do something with these contacts
-                $s->_set_contacts($contacts);
-                my $ticket
-                    = __html_unescape(
+            # XXX - Do something with these contacts
+            $s->_set_contacts($contacts);
+            my $ticket
+                = __html_unescape(
                     $s->contacts->{'soap:Body'}{'ABFindContactsPagedResponse'}
                         {'ABFindContactsPagedResult'}{'CircleResult'}
                         {'CircleTicket'});
-                $s->send('USR %d SHA A %s',
-                         $s->tid, MIME::Base64::encode_base64($ticket, ''));
+            $s->send('USR %d SHA A %s',
+                     $s->tid, MIME::Base64::encode_base64($ticket, ''));
 
-                #
-                my $x =    # XML modules get it wrong if we only have 1 buddy
-                    $s->contacts->{'soap:Body'}{'ABFindContactsPagedResponse'}
-                    {'ABFindContactsPagedResult'}{'Contacts'}{'Contact'};
-                $x = [$x] if ref $x ne 'ARRAY';
-                $s->add_temporary_contact(
-                                 map { $_->{contactInfo}{passportName} } @$x);
-            }
-        );
-    }
+            #
+            my $x =    # XML modules get it wrong if we only have 1 buddy
+                $s->contacts->{'soap:Body'}{'ABFindContactsPagedResponse'}
+                {'ABFindContactsPagedResult'}{'Contacts'}{'Contact'};
+            $x = [$x] if ref $x ne 'ARRAY';
+            $s->add_temporary_contact(map { $_->{contactInfo}{passportName} }
+                                      @$x);
+        }
+    );
+}
 
-    sub _handle_packet_rml {
-        my ($s, $tid, $ok) = @_;
+sub _handle_packet_rml {
+    my ($s, $tid, $ok) = @_;
+
+=begin comment
         use Data::Printer;
         dd @_;
-        ...;
-    }
+=cut
+    ...;
+}
 
-    sub _handle_packet_sbs {
-        my $s = shift;
+sub _handle_packet_sbs {
+    my $s = shift;
 
-        # No one seems to know what this is. Official client ignores it?
-    }
+    # No one seems to know what this is. Official client ignores it?
+}
 
-    sub _handle_packet_sdg {
-        my ($s, $tid, $size, $head, $body) = @_;
-        dd [$head, $body];
-        given ($head->{'Message-Type'}) {
-            when ('Text') {
-                given ($head->{'Service-Channel'}) {
-                    $s->_trigger_im($head, $body) when 'IM/Online';
-                    $s->_trigger_im($head, $body) when undef;
-                    warn 'Offline Msg!' when 'IM/Offline';
-                    default {
-                        warn 'unknown IM!!!!!'
-                    }
+sub _handle_packet_sdg {
+    my ($s, $tid, $size, $head, $body) = @_;
+
+    #dd [$head, $body];
+    given ($head->{'Message-Type'}) {
+        when ('Text') {
+            given ($head->{'Service-Channel'}) {
+                $s->_trigger_im($head, $body) when 'IM/Online';
+                $s->_trigger_im($head, $body) when undef;
+                warn 'Offline Msg!' when 'IM/Offline';
+                default {
+                    warn 'unknown IM!!!!!'
                 }
             }
-            $s->_trigger_nudge($head) when 'Nudge';
-            when ('Wink')           { warn 'Wink' }
-            when ('CustomEmoticon') { warn 'Custom Emoticon' }
-            when ('Control/Typing') { warn 'Typing!' }
-            when ('Data') {
-                my ($header, $packet, $footer);
-                if ($head->{To} !~ m[{.+}]) {
+        }
+        $s->_trigger_nudge($head) when 'Nudge';
+        when ('Wink')           { warn 'Wink' }
+        when ('CustomEmoticon') { warn 'Custom Emoticon' }
+        when ('Control/Typing') { warn 'Typing!' }
+        when ('Data') {
+            my ($header, $packet, $footer);
+            if ($head->{To} !~ m[{.+}]) {
 
 # 0                   1                   2                   3                   4                   5
 # 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2
@@ -604,40 +607,41 @@ XML
 # 7	 32	 DWORD   Acknowledged identifier    In case the message is an acknowledgement, this is a copy of the Identifier of the acknowledged message. Else this is some random generated number.
 # 8	 36	 DWORD   Acknowledged unique ID     In case the message is an acknowledgement, this is a copy of the previous field of the acknowledged message. Else this is 0.
 # 9	 40	 QWORD   Acknowledged data size     In case the message is an acknowledgement, this is a copy of the Total data size field of the acknowledged message. Else this is 0.
-                    sub _quad {
-                        state $little//= unpack 'C', pack 'S', 1;
-                        my $str = shift;
-                        my $big;
-                        if (!eval { $big = unpack('Q', $str); 1; }) {
-                            my ($lo, $hi) = unpack 'LL', $str;
-                            ($hi, $lo) = ($lo, $hi) if !$little;
-                            $big = $lo + $hi * (1 + ~0);
-                            if ($big + 1 == $big) {
-                                warn 'A-pprox-i-mate!';
-                            }
+                sub _quad {
+                    state $little//= unpack 'C', pack 'S', 1;
+                    my $str = shift;
+                    my $big;
+                    if (!eval { $big = unpack('Q', $str); 1; }) {
+                        my ($lo, $hi) = unpack 'LL', $str;
+                        ($hi, $lo) = ($lo, $hi) if !$little;
+                        $big = $lo + $hi * (1 + ~0);
+                        if ($big + 1 == $big) {
+                            warn 'A-pprox-i-mate!';
                         }
-                        return $big;
                     }
-                    (my ($sessionid,  $identifier, $offset,
-                         $total_size, $msg_len,    $flag,
-                         $ack_id,     $ack_uid,    $ack_data_size
-                     ),
-                     $packet
-                    ) = unpack 'NNa8a8NNNNa8a*', $body;
-                    ($packet, $footer)
-                        = unpack 'a' . (_quad($total_size)) . ' a', $packet;
-                    $header = {sessionid     => $sessionid,
-                               identifier    => $identifier,
-                               offset        => _quad($offset),
-                               total_size    => _quad($total_size),
-                               msg_len       => $msg_len,
-                               flag          => $flag,
-                               ack_id        => $ack_id,
-                               ack_uid       => $ack_uid,
-                               ack_data_size => _quad($ack_data_size)
-                    };
+                    return $big;
                 }
-                else {
+                (my ($sessionid,  $identifier, $offset,
+                     $total_size, $msg_len,    $flag,
+                     $ack_id,     $ack_uid,    $ack_data_size
+                 ),
+                 $packet
+                ) = unpack 'NNa8a8NNNNa8a*', $body;
+                ($packet, $footer)
+                    = unpack 'a' . (_quad($total_size)) . ' a',
+                    $packet;
+                $header = {sessionid     => $sessionid,
+                           identifier    => $identifier,
+                           offset        => _quad($offset),
+                           total_size    => _quad($total_size),
+                           msg_len       => $msg_len,
+                           flag          => $flag,
+                           ack_id        => $ack_id,
+                           ack_uid       => $ack_uid,
+                           ack_data_size => _quad($ack_data_size)
+                };
+            }
+            else {
 
 # 0                   1                   2                   3
 # 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -662,82 +666,81 @@ XML
 # BYTE[DHL-8] Data packets TLVs: if (DHL>8) then read bytes(DHL - 8). T=0x1(1) L=0x8(8): Data remaining.
 # D	 ML-DHL	Data Packet	 SLP messsage or data packet
 # F	 DWORD	Footer	 The footer.
-                    p $body;
-                    my ($hl, $op, $ml, $baseid, $etc) = unpack 'CCnNa*',
-                        $body;
-                    warn sprintf 'HL     = %d',      $hl;
-                    warn sprintf 'OP     = %d (%s)', $op,
-                        (  $op == 0 ? 'None'
-                         : $op == 2 ? 'Ack'
-                         : $op == 3 ? 'Init'
-                         : 'BROKEN'
-                        );
-                    warn sprintf 'ML     = %d', $ml;
-                    warn sprintf 'BaseID = %s', $baseid;
+                p $body;
+                my ($hl, $op, $ml, $baseid, $etc) = unpack 'CCnNa*', $body;
 
-                    #
-                    my $_tlv_len = $hl - 8;
-                    $_tlv_len += $_tlv_len % 8;
-                    my ($tlv, $moar) = unpack "a$_tlv_len a*", $etc;
-                    warn sprintf 'TLV    = %s', $tlv;
+                #warn sprintf 'HL     = %d',      $hl;
+                #warn sprintf 'OP     = %d (%s)', $op,
+                #    (  $op == 0 ? 'None'
+                #     : $op == 2 ? 'Ack'
+                #     : $op == 3 ? 'Init'
+                #     : 'BROKEN'
+                #    );
+                #warn sprintf 'ML     = %d', $ml;
+                #warn sprintf 'BaseID = %s', $baseid;
+                #
+                my $_tlv_len = $hl - 8;
+                $_tlv_len += $_tlv_len % 8;
+                my ($tlv, $moar) = unpack "a$_tlv_len a*", $etc;
 
-                    sub _tlv {
-                        my ($t, $v, $m) = unpack 'CC/a', shift;
-                        { shift // (), t => $t, v => $v, $m ? _tlv($m) : () }
-                    }
-                    my ($dhlen, $tf_combo, $pac, $ses, $XXX)
-                        = unpack 'CCnNa*', $moar;
-                    warn length($moar);
-                    ($packet, $footer) = unpack 'a' . ($ml - $dhlen) . 'a*',
-                        $XXX
-                        if $XXX;
-                    $header = {tlv => ($tlv ? _tlv($tlv) : ()),
-                               header_len => $hl,
-                               operation  => $op,
-                               (  $op == 0 ? 'None'
-                                : $op == 2 ? 'Ack'
-                                : $op == 3 ? 'Init'
-                                : 'BROKEN'
-                               ),
-                               base_id => $baseid,
-                               msg_len => $ml
-                    };
-
-                    #
+                #warn sprintf 'TLV    = %s', $tlv;
+                sub _tlv {
+                    my ($t, $v, $m) = unpack 'CC/a', shift;
+                    { shift // (), t => $t, v => $v, $m ? _tlv($m) : () }
                 }
-                dd $header;
+                my ($dhlen, $tf_combo, $pac, $ses, $XXX)
+                    = unpack 'CCnNa*',
+                    $moar;
+                warn length($moar);
+                ($packet, $footer) = unpack 'a' . ($ml - $dhlen) . 'a*', $XXX
+                    if $XXX;
+                $header = {tlv => ($tlv ? _tlv($tlv) : ()),
+                           header_len => $hl,
+                           operation  => $op,
+                           (  $op == 0 ? 'None'
+                            : $op == 2 ? 'Ack'
+                            : $op == 3 ? 'Init'
+                            : 'BROKEN'
+                           ),
+                           base_id => $baseid,
+                           msg_len => $ml
+                };
 
-                #p($packet =~ m[^(.+?)\r\n(.+)\r\n\r\n(.)$]s);
-                my ($p2p_action, $p2p_head, $p2p_body)
-                    = ($packet =~ m[^(.+?)\r\n(.+)\r\n\r\n(.)$]s);
-                dd $head, $p2p_action,
-
-                 #    AnyEvent::MSN::Protocol::__parse_msn_headers($p2p_head),
-                 #    $p2p_body;
-                 #warn 'Data'
-                 # XXX - trigger a callback of some sort
+                #
             }
-            when ('Signal/P2P')              { warn 'P2P' }
-            when ('Signal/ForceAbchSync')    { }
-            when ('Signal/CloseIMWindow')    { }
-            when ('Signal/MarkIMWindowRead') { }
-            when ('Signal/Turn')             { };
-            when ('Signal/AudioMeta')        { }
-            when ('Signal/AudioTunnel')      { }
-            default                          {...}
+
+            #dd $header;
+            #p($packet =~ m[^(.+?)\r\n(.+)\r\n\r\n(.)$]s);
+            my ($p2p_action, $p2p_head, $p2p_body)
+                = ($packet =~ m[^(.+?)\r\n(.+)\r\n\r\n(.)$]s);
+
+            #dd $head, $p2p_action,
+            #    AnyEvent::MSN::Protocol::__parse_msn_headers($p2p_head),
+            #    $p2p_body;
+            #warn 'Data'
+            # XXX - trigger a callback of some sort
         }
+        when ('Signal/P2P')              { warn 'P2P' }
+        when ('Signal/ForceAbchSync')    { }
+        when ('Signal/CloseIMWindow')    { }
+        when ('Signal/MarkIMWindowRead') { }
+        when ('Signal/Turn')             { };
+        when ('Signal/AudioMeta')        { }
+        when ('Signal/AudioTunnel')      { }
+        default                          {...}
     }
+}
 
-    sub _handle_packet_usr {
-        my ($s, $tid, $subtype, $_s, $policy, $nonce) = @_;
-        if ($subtype eq 'OK') {
+sub _handle_packet_usr {
+    my ($s, $tid, $subtype, $_s, $policy, $nonce) = @_;
+    if ($subtype eq 'OK') {
 
-            # Sent after we send ADL command. Lastcommand in the logon?
-        }
-        elsif ($subtype eq 'SSO') {
-            my $x      = 1;
-            my @tokens = map {
-                sprintf <<'TOKEN', $x++, $_->[0], $_->[1] } @{$s->SSOsites};
+        # Sent after we send ADL command. Lastcommand in the logon?
+    }
+    elsif ($subtype eq 'SSO') {
+        my $x      = 1;
+        my @tokens = map {
+            sprintf <<'TOKEN', $x++, $_->[0], $_->[1] } @{$s->SSOsites};
             <wst:RequestSecurityToken Id="RST%d">
                 <wst:RequestType>http://schemas.xmlsoap.org/ws/2004/04/security/trust/Issue</wst:RequestType>
                 <wsp:AppliesTo>
@@ -748,14 +751,14 @@ XML
                 <wsse:PolicyReference URI="%s"></wsse:PolicyReference>
             </wst:RequestSecurityToken>
 TOKEN
-            $s->_soap_request(
-                ($s->passport =~ m[\@msn.com$]i
-                 ?
-                     'https://msnia.login.live.com/pp550/RST.srf'
-                 : 'https://login.live.com/RST.srf'
-                ),
-                {},    # headers
-                sprintf(<<'XML', $s->password, $s->passport, join '', @tokens),
+        $s->_soap_request(
+            ($s->passport =~ m[\@msn.com$]i
+             ?
+                 'https://msnia.login.live.com/pp550/RST.srf'
+             : 'https://login.live.com/RST.srf'
+            ),
+            {},    # headers
+            sprintf(<<'XML', $s->password, $s->passport, join '', @tokens),
 <Envelope xmlns="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wsse="http://schemas.xmlsoap.org/ws/2003/06/secext" xmlns:saml="urn:oasis:names:tc:SAML:1.0:assertion" xmlns:wsp="http://schemas.xmlsoap.org/ws/2002/12/policy" xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd" xmlns:wsa="http://schemas.xmlsoap.org/ws/2004/03/addressing" xmlns:wssc="http://schemas.xmlsoap.org/ws/2004/04/sc" xmlns:wst="http://schemas.xmlsoap.org/ws/2004/04/trust">
     <Header>
         <wsse:Security>
@@ -778,352 +781,355 @@ TOKEN
     </Body>
 </Envelope>
 XML
-                sub {
-                    my $d = shift;
-                    for my $token (
-                         @{  $d->{'S:Body'}{
-                                 'wst:RequestSecurityTokenResponseCollection'}
-                                 {'wst:RequestSecurityTokenResponse'}
-                         }
-                        )
-                    {   $s->_add_auth_token(
+            sub {
+                my $d = shift;
+                for my $token (
+                        @{  $d->{'S:Body'}
+                                {'wst:RequestSecurityTokenResponseCollection'}
+                                {'wst:RequestSecurityTokenResponse'}
+                        }
+                    )
+                {   $s->_add_auth_token(
                             $token->{'wsp:AppliesTo'}{'wsa:EndpointReference'}
                                 {'wsa:Address'},
                             $token
-                        );
-                    }
+                    );
+                }
 
-                    #
-                    if ($policy =~ m[MBI]) {
-                        my $token = $s->auth_token('messengerclear.live.com')
-                            ;    # or http://Passport.NET/tb
-                        my $token_
-                            = __html_escape(
-                                 $token->{'wst:RequestedSecurityToken'}
+                #
+                if ($policy =~ m[MBI]) {
+                    my $token = $s->auth_token('messengerclear.live.com')
+                        ;    # or http://Passport.NET/tb
+                    my $token_
+                        = __html_escape($token->{'wst:RequestedSecurityToken'}
                                      {'wsse:BinarySecurityToken'}{'content'});
-                        $s->send('USR %d SSO S %s %s %s',
-                                 $s->tid,
-                                 $token->{'wst:RequestedSecurityToken'}
-                                     {'wsse:BinarySecurityToken'}{'content'},
-                                 AnyEvent::MSN::Protocol::SSO(
+                    $s->send('USR %d SSO S %s %s %s',
+                             $s->tid,
+                             $token->{'wst:RequestedSecurityToken'}
+                                 {'wsse:BinarySecurityToken'}{'content'},
+                             AnyEvent::MSN::Protocol::SSO(
                                            $nonce,
                                            $token->{'wst:RequestedProofToken'}
                                                {'wst:BinarySecret'}
-                                 ),
-                                 $s->guid
-                        );
-                    }
-                    elsif ($policy =~ m[^\?]) {
-                        ...;
-                    }
+                             ),
+                             $s->guid
+                    );
                 }
-            );
-        }
-        elsif ($subtype eq 'OK') {
-
-            # XXX - logged in okay. What now?
-        }
-        else {
-            ...;
-        }
-    }
-
-    sub _handle_packet_ubx {    # Buddy has changed something
-        my ($s, $passport, $len, $payload) = @_;
-        my $xml = $s->_parse_xml($payload);
-        if ($len == 0 && $passport eq '1:' . $s->passport) {
-        }
-        else {
-            dd $xml;
-            my ($user) = ($passport =~ m[:(.+)$]);
-            $s->_add_temporary_contact($user, $xml);
-        }
-    }
-
-    sub _handle_packet_uux {    # ACK for UUX
-    }
-
-    sub _handle_packet_ver {    # Negotiated protocol version
-        my ($s, $tid, $r) = @_;
-        $s->_set_protocol_version($r);
-
-        # Send basic client info
-        $s->send('CVR %d %s %s %s %s %s %s %s %s%s',
-                 $s->tid,
-                 $s->locale_id,
-                 $s->os_type,
-                 $s->os_ver,
-                 $s->arch,
-                 $s->client_name,
-                 $s->client_version,
-                 $s->client_string,
-                 $s->passport,
-                 (' ' . ($s->_has_redirect ? $s->redirect : ' 0'))
+                elsif ($policy =~ m[^\?]) {
+                    ...;
+                }
+            }
         );
     }
+    elsif ($subtype eq 'OK') {
 
-    sub _handle_packet_xfr {    # Transver to another switchboard
-        my $s = shift;
-        my ($tid, $type, $addr, $u, $d, $redirect) = @_;
-        $s->send('OUT');
-        $s->handle->destroy;
-        my ($host, $port) = ($addr =~ m[^(.+):(\d+)$]);
-        $s->_set_host($host);
-        $s->_set_port($port);
-        $s->_set_redirect($redirect);
-        $s->connect;
+        # XXX - logged in okay. What now?
     }
+    else {
+        ...;
+    }
+}
 
-    # SOAP client
-    has soap_requests => (isa     => 'HashRef[AnyEvent::Util::guard]',
-                          traits  => ['Hash'],
-                          handles => {_add_soap_request    => 'set',
-                                      _del_soap_request    => 'delete',
-                                      _clear_soap_requests => 'clear'
-                          }
+sub _handle_packet_ubx {    # Buddy has changed something
+    my ($s, $passport, $len, $payload) = @_;
+    my $xml = $s->_parse_xml($payload);
+    if ($len == 0 && $passport eq '1:' . $s->passport) {
+    }
+    else {
+
+        #dd $xml;
+        my ($user) = ($passport =~ m[:(.+)$]);
+        $s->_add_temporary_contact($user, $xml);
+    }
+}
+
+sub _handle_packet_uux {    # ACK for UUX
+}
+
+sub _handle_packet_ver {    # Negotiated protocol version
+    my ($s, $tid, $r) = @_;
+    $s->_set_protocol_version($r);
+
+    # Send basic client info
+    $s->send('CVR %d %s %s %s %s %s %s %s %s%s',
+             $s->tid,
+             $s->locale_id,
+             $s->os_type,
+             $s->os_ver,
+             $s->arch,
+             $s->client_name,
+             $s->client_version,
+             $s->client_string,
+             $s->passport,
+             (' ' . ($s->_has_redirect ? $s->redirect : ' 0'))
+    );
+}
+
+sub _handle_packet_xfr {    # Transver to another switchboard
+    my $s = shift;
+    my ($tid, $type, $addr, $u, $d, $redirect) = @_;
+    $s->send('OUT');
+    $s->handle->destroy;
+    my ($host, $port) = ($addr =~ m[^(.+):(\d+)$]);
+    $s->_set_host($host);
+    $s->_set_port($port);
+    $s->_set_redirect($redirect);
+    $s->connect;
+}
+
+# SOAP client
+has soap_requests => (isa     => 'HashRef[AnyEvent::Util::guard]',
+                      traits  => ['Hash'],
+                      handles => {_add_soap_request    => 'set',
+                                  _del_soap_request    => 'delete',
+                                  _clear_soap_requests => 'clear'
+                      }
+);
+
+sub _soap_request {
+    my ($s, $uri, $headers, $content, $cb) = @_;
+    my %headers = (
+           'user-agent'   => 'MSNPM 1.0',
+           'content-type' => 'application/soap+xml; charset=utf-8; action=""',
+           'Expect'       => '100-continue',
+           'connection'   => 'Keep-Alive'
     );
 
-    sub _soap_request {
-        my ($s, $uri, $headers, $content, $cb) = @_;
-        my %headers = ('user-agent' => 'MSNPM 1.0',
-                       'content-type' =>
-                           'application/soap+xml; charset=utf-8; action=""',
-                       'Expect'     => '100-continue',
-                       'connection' => 'Keep-Alive'
-        );
-        warn $content;
-        @headers{keys %$headers} = values %$headers;
-        $s->_add_soap_request(
-            $uri,
-            AnyEvent::HTTP::http_request(
-                POST       => $uri,
-                headers    => \%headers,
-                timeout    => 15,
-                persistent => 1,
-                body       => $content,
-                sub {
-                    my ($body, $hdr) = @_;
-                    my $xml = $s->_parse_xml($body);
-                    $s->_del_soap_request($uri);
-                    return $cb->($xml)
-                        if $hdr->{Status} =~ /^2/
-                            && !defined $xml->{'S:Fault'};
-                    dd $hdr;
-                    dd $xml;
-                    $s->_trigger_error(
-                              $xml->{'soap:Body'}{'soap:Fault'}{'soap:Reason'}
-                                  {'soap:Text'}{'content'}
-                                  // $xml->{'soap:Body'}{'soap:Fault'}
-                                  {'faultstring'} // $hdr->{Reason});
-                }
-            )
-        );
-    }
-
-    # Methods exposed publicly
-    sub disconnect {    # cleanly disconnect from switchboard
-        my $s = shift;
-        $s->send('OUT');
-        $s->handle->on_drain(
+    #warn $content;
+    @headers{keys %$headers} = values %$headers;
+    $s->_add_soap_request(
+        $uri,
+        AnyEvent::HTTP::http_request(
+            POST       => $uri,
+            headers    => \%headers,
+            timeout    => 15,
+            persistent => 1,
+            body       => $content,
             sub {
-                $s->handle->destroy;
+                my ($body, $hdr) = @_;
+                my $xml = $s->_parse_xml($body);
+                $s->_del_soap_request($uri);
+                return $cb->($xml)
+                    if $hdr->{Status} =~ /^2/
+                        && !defined $xml->{'S:Fault'};
+
+                #dd $hdr;
+                #dd $xml;
+                $s->_trigger_error(
+                       $xml->{'soap:Body'}{'soap:Fault'}{'soap:Reason'}
+                           {'soap:Text'}{'content'}
+                           // $xml->{'soap:Body'}{'soap:Fault'}{'faultstring'}
+                           // $hdr->{Reason});
             }
-        );
-        $s->_clear_redirect;    # Start from scratch next time
-    }
+        )
+    );
+}
 
-    sub send_message {
-        my ($s, $to, $msg, $format) = @_;
-        $to = '1:' . $to if $to !~ m[^\d+:];
-        $format //= 'FN=Segoe%20UI; EF=; CO=0; CS=1; PF=0';
-
-        # FN: Font name (url safe)
-        # EF: String containing...
-        # - B for Bold
-        # - U for Underline
-        # - I for Italics
-        #　- S for Strikethrough
-        # CO: Color (hex without #)
-        my $data
-            = sprintf
-            qq[Routing: 1.0\r\nTo: %s\r\nFrom: 1:%s;epid=%s\r\n\r\nReliability: 1.0\r\n\r\nMessaging: 2.0\r\nMessage-Type: Text\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Length: %d\r\nX-MMS-IM-Format: %s\r\n\r\n%s],
-            $to, $s->passport, $s->guid, length($msg), $format, $msg;
-        $s->send(qq'SDG 0 %d\r\n%s', length($data), $data);
-    }
-
-    sub nudge {
-        my ($s, $to) = @_;
-        $to = '1:' . $to if $to !~ m[^\d+:];
-        my $data
-            = sprintf
-            qq[Routing: 1.0\r\nTo: %s\r\nFrom: 1:%s;epid=%s\r\n\r\nReliability: 1.0\r\n\r\nMessaging: 2.0\r\nMessage-Type: Nudge\r\nService-Channel: IM/Online\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Length: 0\r\n\r\n],
-            $to, $s->passport, $s->guid;
-        $s->send("SDG 0 %d\r\n%s", length($data), $data);
-    }
-
-    sub add_contact {
-        my ($s, $contact) = @_;
-
-        #
-        my $token
-            = $s->auth_token('contacts.msn.com')
-            ->{'wst:RequestedSecurityToken'}{'wsse:BinarySecurityToken'}
-            {content};
-        $token =~ s/&/&amp;/sg;
-        $token =~ s/</&lt;/sg;
-        $token =~ s/>/&gt;/sg;
-        $token =~ s/"/&quot;/sg;
-
-        #
-        $s->_soap_request(
-            'https://local-bay.contacts.msn.com/abservice/abservice.asmx',
-            {   'content-type' => 'text/xml; charset=utf-8',
-                SOAPAction =>
-                    '"http://www.msn.com/webservices/AddressBook/ABContactAdd"'
-            },
-            sprintf(<<'XML', $token, $contact),
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-   xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-   xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/">
-     <soap:Header>
-        <ABApplicationHeader xmlns="http://www.msn.com/webservices/AddressBook">
-            <ApplicationId>CFE80F9D-180F-4399-82AB-413F33A1FA11</ApplicationId>
-            <IsMigration>false</IsMigration>
-            <PartnerScenario>ContactSave</PartnerScenario>
-        </ABApplicationHeader>
-        <ABAuthHeader xmlns="http://www.msn.com/webservices/AddressBook">
-            <TicketToken>%s</TicketToken>
-            <ManagedGroupRequest>false</ManagedGroupRequest>
-        </ABAuthHeader>
-    </soap:Header>
- <soap:Body>
- <ABContactAdd xmlns="http://www.msn.com/webservices/AddressBook">
-            <abId>
-                00000000-0000-0000-0000-000000000000
-            </abId>
-            <contacts>
-                <Contact xmlns="http://www.msn.com/webservices/AddressBook">
-                    <contactInfo>
-                        <contactType>LivePending</contactType>
-                        <passportName>%s</passportName>
-                        <isMessengerUser>true</isMessengerUser>
-                        <MessengerMemberInfo>
-                        <DisplayName>minimum clorpvfgt</DisplayName>
-                        </MessengerMemberInfo>
-                    </contactInfo>
-                </Contact>
-            </contacts>
-            <options>
-                <EnableAllowListManagement>
-                    true
-                </EnableAllowListManagement>
-            </options>
-        </ABContactAdd>
-
- </soap:Body>
-</soap:Envelope>
-XML
-            sub {
-                dd @_;
-                $s->add_temporary_contact($contact);
-            }
-        );
-    }
-
-    sub remove_contact {
-        my ($s, $contact) = @_;
-
-        #
-        my $token
-            = $s->auth_token('contacts.msn.com')
-            ->{'wst:RequestedSecurityToken'}{'wsse:BinarySecurityToken'}
-            {content};
-        $token =~ s/&/&amp;/sg;
-        $token =~ s/</&lt;/sg;
-        $token =~ s/>/&gt;/sg;
-        $token =~ s/"/&quot;/sg;
-
-        #
-        $s->_soap_request(
-            'https://contacts.msn.com/abservice/abservice.asmx',
-            {   'content-type' => 'text/xml; charset=utf-8',
-                SOAPAction =>
-                    '"http://www.msn.com/webservices/AddressBook/ABContactDelete"'
-            },
-            sprintf(<<'XML', $token, $contact),
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-   xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-   xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/">
-     <soap:Header>
-        <ABApplicationHeader xmlns="http://www.msn.com/webservices/AddressBook">
-            <ApplicationId>CFE80F9D-180F-4399-82AB-413F33A1FA11</ApplicationId>
-            <IsMigration>false</IsMigration>
-            <PartnerScenario>ContactSave</PartnerScenario>
-        </ABApplicationHeader>
-        <ABAuthHeader xmlns="http://www.msn.com/webservices/AddressBook">
-            <TicketToken>%s</TicketToken>
-            <ManagedGroupRequest>false</ManagedGroupRequest>
-        </ABAuthHeader>
-    </soap:Header>
- <soap:Body>
- <ABContactAdd xmlns="http://www.msn.com/webservices/AddressBook">
-            <abId>
-                00000000-0000-0000-0000-000000000000
-            </abId>
-            <contacts>
-                <Contact xmlns="http://www.msn.com/webservices/AddressBook">
-                    <contactInfo>
-                        <contactType>LivePending</contactType>
-                        <passportName>%s</passportName>
-                        <isMessengerUser>true</isMessengerUser>
-                        <MessengerMemberInfo>
-                        <DisplayName>minimum clorpvfgt</DisplayName>
-                        </MessengerMemberInfo>
-                    </contactInfo>
-                </Contact>
-            </contacts>
-            <options>
-                <EnableAllowListManagement>
-                    true
-                </EnableAllowListManagement>
-            </options>
-        </ABContactAdd>
- </soap:Body>
-</soap:Envelope>
-XML
-            sub {
-                dd @_;
-                $s->remove_temporary_contact($contact);
-                ...;
-            }
-        );
-    }
-
-    sub add_temporary_contact {
-        my $s = shift;
-        my %contacts;
-        for my $contact (@_) {
-            my ($user, $domain) = split /\@/, $contact, 2;
-            push @{$contacts{$domain}}, $user;
+# Methods exposed publicly
+sub disconnect {    # cleanly disconnect from switchboard
+    my $s = shift;
+    $s->send('OUT');
+    $s->handle->on_drain(
+        sub {
+            $s->handle->destroy;
         }
-        my $data = sprintf '<ml%s>%s</ml>', ($s->connected ? '' : ' l="1"'),
-            join '', map {
-            sprintf '<d n="%s">%s</d>', $_, join '', map {
-                sprintf '<c n="%s" t="1">%s</c>', $_, join '',
-                    map {"<s l='3' n='$_' />"}
-                    qw[IM PE PF]
-                } sort @{$contacts{$_}}
-            } sort keys %contacts;
-        my $tid = $s->tid;
-        $s->send("ADL %d %d\r\n%s", $tid, length($data), $data);
-        $tid;
-    }
+    );
+    $s->_clear_redirect;    # Start from scratch next time
+}
 
-    sub remove_buddy {
-        my $s = shift;
-        my $data = sprintf <<'', reverse split '@', shift, 2;
+sub send_message {
+    my ($s, $to, $msg, $format) = @_;
+    $to = '1:' . $to if $to !~ m[^\d+:];
+    $format //= 'FN=Segoe%20UI; EF=; CO=0; CS=1; PF=0';
+
+    # FN: Font name (url safe)
+    # EF: String containing...
+    # - B for Bold
+    # - U for Underline
+    # - I for Italics
+    #　- S for Strikethrough
+    # CO: Color (hex without #)
+    my $data
+        = sprintf
+        qq[Routing: 1.0\r\nTo: %s\r\nFrom: 1:%s;epid=%s\r\n\r\nReliability: 1.0\r\n\r\nMessaging: 2.0\r\nMessage-Type: Text\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Length: %d\r\nX-MMS-IM-Format: %s\r\n\r\n%s],
+        $to, $s->passport, $s->guid, length($msg), $format, $msg;
+    $s->send(qq'SDG 0 %d\r\n%s', length($data), $data);
+}
+
+sub nudge {
+    my ($s, $to) = @_;
+    $to = '1:' . $to if $to !~ m[^\d+:];
+    my $data
+        = sprintf
+        qq[Routing: 1.0\r\nTo: %s\r\nFrom: 1:%s;epid=%s\r\n\r\nReliability: 1.0\r\n\r\nMessaging: 2.0\r\nMessage-Type: Nudge\r\nService-Channel: IM/Online\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Length: 0\r\n\r\n],
+        $to, $s->passport, $s->guid;
+    $s->send("SDG 0 %d\r\n%s", length($data), $data);
+}
+
+sub add_contact {
+    my ($s, $contact) = @_;
+
+    #
+    my $token = $s->auth_token('contacts.msn.com')
+        ->{'wst:RequestedSecurityToken'}{'wsse:BinarySecurityToken'}{content};
+    $token =~ s/&/&amp;/sg;
+    $token =~ s/</&lt;/sg;
+    $token =~ s/>/&gt;/sg;
+    $token =~ s/"/&quot;/sg;
+
+    #
+    $s->_soap_request(
+        'https://local-bay.contacts.msn.com/abservice/abservice.asmx',
+        {   'content-type' => 'text/xml; charset=utf-8',
+            SOAPAction =>
+                '"http://www.msn.com/webservices/AddressBook/ABContactAdd"'
+        },
+        sprintf(<<'XML', $token, $contact),
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+   xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+   xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/">
+     <soap:Header>
+        <ABApplicationHeader xmlns="http://www.msn.com/webservices/AddressBook">
+            <ApplicationId>CFE80F9D-180F-4399-82AB-413F33A1FA11</ApplicationId>
+            <IsMigration>false</IsMigration>
+            <PartnerScenario>ContactSave</PartnerScenario>
+        </ABApplicationHeader>
+        <ABAuthHeader xmlns="http://www.msn.com/webservices/AddressBook">
+            <TicketToken>%s</TicketToken>
+            <ManagedGroupRequest>false</ManagedGroupRequest>
+        </ABAuthHeader>
+    </soap:Header>
+ <soap:Body>
+ <ABContactAdd xmlns="http://www.msn.com/webservices/AddressBook">
+            <abId>
+                00000000-0000-0000-0000-000000000000
+            </abId>
+            <contacts>
+                <Contact xmlns="http://www.msn.com/webservices/AddressBook">
+                    <contactInfo>
+                        <contactType>LivePending</contactType>
+                        <passportName>%s</passportName>
+                        <isMessengerUser>true</isMessengerUser>
+                        <MessengerMemberInfo>
+                        <DisplayName>minimum clorpvfgt</DisplayName>
+                        </MessengerMemberInfo>
+                    </contactInfo>
+                </Contact>
+            </contacts>
+            <options>
+                <EnableAllowListManagement>
+                    true
+                </EnableAllowListManagement>
+            </options>
+        </ABContactAdd>
+
+ </soap:Body>
+</soap:Envelope>
+XML
+        sub {
+
+            #dd @_;
+            $s->add_temporary_contact($contact);
+        }
+    );
+}
+
+sub remove_contact {
+    my ($s, $contact) = @_;
+
+    #
+    my $token = $s->auth_token('contacts.msn.com')
+        ->{'wst:RequestedSecurityToken'}{'wsse:BinarySecurityToken'}{content};
+    $token =~ s/&/&amp;/sg;
+    $token =~ s/</&lt;/sg;
+    $token =~ s/>/&gt;/sg;
+    $token =~ s/"/&quot;/sg;
+
+    #
+    $s->_soap_request(
+        'https://contacts.msn.com/abservice/abservice.asmx',
+        {'content-type' => 'text/xml; charset=utf-8',
+         SOAPAction =>
+             '"http://www.msn.com/webservices/AddressBook/ABContactDelete"'
+        },
+        sprintf(<<'XML', $token, $contact),
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+   xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+   xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/">
+     <soap:Header>
+        <ABApplicationHeader xmlns="http://www.msn.com/webservices/AddressBook">
+            <ApplicationId>CFE80F9D-180F-4399-82AB-413F33A1FA11</ApplicationId>
+            <IsMigration>false</IsMigration>
+            <PartnerScenario>ContactSave</PartnerScenario>
+        </ABApplicationHeader>
+        <ABAuthHeader xmlns="http://www.msn.com/webservices/AddressBook">
+            <TicketToken>%s</TicketToken>
+            <ManagedGroupRequest>false</ManagedGroupRequest>
+        </ABAuthHeader>
+    </soap:Header>
+ <soap:Body>
+ <ABContactAdd xmlns="http://www.msn.com/webservices/AddressBook">
+            <abId>
+                00000000-0000-0000-0000-000000000000
+            </abId>
+            <contacts>
+                <Contact xmlns="http://www.msn.com/webservices/AddressBook">
+                    <contactInfo>
+                        <contactType>LivePending</contactType>
+                        <passportName>%s</passportName>
+                        <isMessengerUser>true</isMessengerUser>
+                        <MessengerMemberInfo>
+                        <DisplayName>minimum clorpvfgt</DisplayName>
+                        </MessengerMemberInfo>
+                    </contactInfo>
+                </Contact>
+            </contacts>
+            <options>
+                <EnableAllowListManagement>
+                    true
+                </EnableAllowListManagement>
+            </options>
+        </ABContactAdd>
+ </soap:Body>
+</soap:Envelope>
+XML
+        sub {
+
+            #dd @_;
+            $s->remove_temporary_contact($contact);
+            ...;
+        }
+    );
+}
+
+# Remove a contact:
+# RML 12 112\r\n
+# <ml><d n="penilecolada.com"><c n="junk" t="1"><s l="3" n="IM" /><s l="3" n="PE" /><s l="3" n="PF"/></c></d></ml>
+sub add_temporary_contact {
+    my $s = shift;
+    my %contacts;
+    for my $contact (@_) {
+        my ($user, $domain) = split /\@/, $contact, 2;
+        push @{$contacts{$domain}}, $user;
+    }
+    my $data = sprintf '<ml%s>%s</ml>', ($s->connected ? '' : ' l="1"'),
+        join '', map {
+        sprintf '<d n="%s">%s</d>', $_, join '', map {
+            sprintf '<c n="%s" t="1">%s</c>', $_, join '',
+                map {"<s l='3' n='$_' />"}
+                qw[IM PE PF]
+            } sort @{$contacts{$_}}
+        } sort keys %contacts;
+    my $tid = $s->tid;
+    $s->send("ADL %d %d\r\n%s", $tid, length($data), $data);
+    $tid;
+}
+
+sub remove_buddy {
+    my $s = shift;
+    my $data = sprintf <<'', reverse split '@', shift, 2;
 <ml>
     <d n="%s">
         <c n="%s" t="1">
@@ -1134,76 +1140,80 @@ XML
     </d>
 </ml>
 
-        my $tid = $s->tid;
-        $s->send("RML %d %d\r\n%s", $tid, length($data), $data);
-        $tid;
-    }
-    after set_status => sub {
-        my ($s, $status) = @_;
-        my $body = sprintf '<user>' . '<s n="PE">
-            <UserTileLocation>0</UserTileLocation><FriendlyName>%s</FriendlyName><PSM>%s</PSM><RUM></RUM><RLT>0</RLT></s>'
-            . '<s n="IM"><Status>%s</Status><CurrentMedia></CurrentMedia></s>'
-            . '<sep n="PD"><ClientType>1</ClientType><EpName>%s</EpName><Idle>false</Idle><State>%s</State></sep>'
-            . '<sep n="PE" epid="%s"><VER>MSNMSGR:15.4.3508.1109</VER><TYP>1</TYP><Capabilities>2952790016:557056</Capabilities></sep>'
-            . '<sep n="IM"><Capabilities>2953838624:132096</Capabilities></sep>'
-            . '</user>', __html_escape($s->friendly_name),
-            __html_escape($s->personal_message),
-            $status,
-            __html_escape($s->location), $status, $s->guid;
-        my $out
-            = sprintf
-            qq[To: 1:%s\r\nRouting: 1.0\r\nFrom: 1:%s;epid=%s\r\n\r\nStream: 1\r\nFlags: ACK\r\nReliability: 1.0\r\n\r\nContent-Length: %d\r\nContent-Type: application/user+xml\r\nPublication: 1.0\r\nUri: /user\r\n\r\n%s],
-            $s->passport,
-            $s->passport, $s->guid, length($body), $body;
-        $s->send("PUT %d %d\r\n%s", $s->tid, length($out), $out);
-    };
-
-    # Testing/Incomplete stuff
-    sub create_group_chat {
-        my $s    = shift;
-        my $body = '';      # For now.
-        my $out
-            = sprintf
-            qq[To: 10:00000000-0000-0000-0000-000000000000\@live.com\r\nRouting: 1.0\r\nFrom: 1:%s;epid=%s\r\n\r\nStream: 1\r\nFlags: ACK\r\nReliability: 1.0\r\n\r\nContent-Length: %d\r\nContent-Type: application/multiparty+xml\r\nPublication: 1.0\r\nUri: /circle\r\n\r\n%s],
-            $s->passport, $s->guid, length($body), $body;
-        $s->send("PUT %d %d\r\n%s", $s->tid, length($out), $out);
-    }
-
-    # Random private methods
-    sub _parse_xml {
-        my ($s, $data) = @_;
-        state $xml_twig //= XML::Twig->new();
-        my $xml = {};
-        try {
-            $xml_twig->parse($data);
-            $xml = $xml_twig->simplify(keyattr => [qw[type id value]]);
-        }
-        catch { $s->_trigger_fatal_error(qq[parsing XML: $_]) };
-        $xml;
-    }
-
-    # Non-OOP utility functions
-    sub __html_escape {
-        my $x = shift;
-        $x =~ s[&][&amp;]sg;
-        $x =~ s[<][&lt;]sg;
-        $x =~ s[>][&gt;]sg;
-        $x =~ s["][&quot;]sg;
-        $x;
-    }
-
-    sub __html_unescape {
-        my $x = shift;
-        $x =~ s[&lt;][<]sg;
-        $x =~ s[&gt;][>]sg;
-        $x =~ s[&quot;]["]sg;
-        $x =~ s[&amp;][&]sg;
-        $x;
-    }
-
-    #
-    __PACKAGE__->meta->make_immutable();
+    my $tid = $s->tid;
+    $s->send("RML %d %d\r\n%s", $tid, length($data), $data);
+    $tid;
 }
+after set_status => sub {
+    my ($s, $status) = @_;
+    my $body = sprintf '<user>' . '<s n="PE">
+            <UserTileLocation>0</UserTileLocation><FriendlyName>%s</FriendlyName><PSM>%s</PSM><RUM></RUM><RLT>0</RLT></s>'
+        . '<s n="IM"><Status>%s</Status><CurrentMedia></CurrentMedia></s>'
+        . '<sep n="PD"><ClientType>1</ClientType><EpName>%s</EpName><Idle>false</Idle><State>%s</State></sep>'
+        . '<sep n="PE" epid="%s"><VER>MSNMSGR:15.4.3508.1109</VER><TYP>1</TYP><Capabilities>2952790016:557056</Capabilities></sep>'
+        . '<sep n="IM"><Capabilities>2953838624:132096</Capabilities></sep>'
+        . '</user>', __html_escape($s->friendly_name),
+        __html_escape($s->personal_message),
+        $status,
+        __html_escape($s->location), $status, $s->guid;
+    my $out
+        = sprintf
+        qq[To: 1:%s\r\nRouting: 1.0\r\nFrom: 1:%s;epid=%s\r\n\r\nStream: 1\r\nFlags: ACK\r\nReliability: 1.0\r\n\r\nContent-Length: %d\r\nContent-Type: application/user+xml\r\nPublication: 1.0\r\nUri: /user\r\n\r\n%s],
+        $s->passport,
+        $s->passport, $s->guid, length($body), $body;
+    $s->send("PUT %d %d\r\n%s", $s->tid, length($out), $out);
+};
+
+# Testing/Incomplete stuff
+sub create_group_chat {
+    my $s    = shift;
+    my $body = '';      # For now.
+    my $out
+        = sprintf
+        qq[To: 10:00000000-0000-0000-0000-000000000000\@live.com\r\nRouting: 1.0\r\nFrom: 1:%s;epid=%s\r\n\r\nStream: 1\r\nFlags: ACK\r\nReliability: 1.0\r\n\r\nContent-Length: %d\r\nContent-Type: application/multiparty+xml\r\nPublication: 1.0\r\nUri: /circle\r\n\r\n%s],
+        $s->passport, $s->guid, length($body), $body;
+    $s->send("PUT %d %d\r\n%s", $s->tid, length($out), $out);
+}
+
+# Random private methods
+sub _parse_xml {
+    my ($s, $data) = @_;
+    state $xml_twig //= XML::Twig->new();
+    my $xml = {};
+    use Carp;
+
+=begin comment Carp::confess('...') if ! length $data ;
+=cut
+    try {
+        $xml_twig->parse($data);
+        $xml = $xml_twig->simplify(keyattr => [qw[type id value]]);
+    }
+    catch { $s->_trigger_fatal_error(qq[parsing XML: $_]) };
+    $xml;
+}
+
+# Non-OOP utility functions
+sub __html_escape {
+    my $x = shift;
+    $x =~ s[&][&amp;]sg;
+    $x =~ s[<][&lt;]sg;
+    $x =~ s[>][&gt;]sg;
+    $x =~ s["][&quot;]sg;
+    $x;
+}
+
+sub __html_unescape {
+    my $x = shift;
+    $x =~ s[&lt;][<]sg;
+    $x =~ s[&gt;][>]sg;
+    $x =~ s[&quot;]["]sg;
+    $x =~ s[&amp;][&]sg;
+    $x;
+}
+
+#
+__PACKAGE__->meta->make_immutable();
+no Moose;
 1;
 
 =pod
