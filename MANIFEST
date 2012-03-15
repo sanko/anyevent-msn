@@ -3,6 +3,7 @@ Changes
 examples/client.pl
 lib/AnyEvent/MSN.pm
 lib/AnyEvent/MSN/Protocol.pm
+lib/AnyEvent/MSN/Types.pm
 LICENSE
 MANIFEST			This list of files
 META.json
