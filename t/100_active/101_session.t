@@ -22,11 +22,18 @@ my $msn = AnyEvent::MSN->new(
     },
     on_error => sub {
         my (undef, $msg, $fatal) = @_;
-        diag ucfirst sprintf '%serror: %s', ($fatal ? 'fatal ' : ''), $msg;
-        $cv->send;
+        note ucfirst sprintf '%serror: %s', ($fatal ? 'fatal ' : ''), $msg;
+        $cv->send if $fatal;
     },
-    on_user_notification =>
-        sub { use Data::Dump; ddx shift->contacts; ddx \@_; ... }
+    on_user_notification => sub {
+        my ($s, $bud, $status) = @_;
+        return if $bud->{From} !~ $s->passport;
+        pass 'I came online!';
+
+        # XXX - Remove self from buddy list, wait to see self go offline
+        #$s->remove_contact($s->passport);
+        $cv->send;
+    }
 );
 $cv->recv;
 done_testing;
@@ -41,7 +48,7 @@ CPAN ID: SANKO
 
 =head1 License and Legal
 
-Copyright (C) 2011 by Sanko Robinson <sanko@cpan.org>
+Copyright (C) 2012 by Sanko Robinson <sanko@cpan.org>
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of

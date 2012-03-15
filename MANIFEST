@@ -9,4 +9,4 @@ META.json
 META.yml
 README
 t/000_basic/001_use_ok.t
-t/100_active/101_login.t
+t/100_active/101_session.t
