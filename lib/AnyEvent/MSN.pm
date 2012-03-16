@@ -887,34 +887,36 @@ has soap_requests => (isa     => 'HashRef[AnyEvent::Util::guard]',
 );
 
 sub _soap_request {
-    my ($s, $uri, $headers, $content, $cb) = @_;
+    my ($s, $uri, $headers, $content, $cb, $attempt) = @_;
+    $attempt //= 1;
+    return if $attempt++ >= 5;    # Give up after a few failed attempts
     my %headers = (
            'user-agent'   => 'MSNPM 1.0',
            'content-type' => 'application/soap+xml; charset=utf-8; action=""',
            'Expect'       => '100-continue',
            'connection'   => 'Keep-Alive'
     );
-
-    #warn $content;
     @headers{keys %$headers} = values %$headers;
     $s->_add_soap_request(
         $uri,
         AnyEvent::HTTP::http_request(
             POST       => $uri,
             headers    => \%headers,
-            timeout    => 15,
+            timeout    => 20 * $attempt,
             persistent => 1,
             body       => $content,
             sub {
                 my ($body, $hdr) = @_;
+
+                # Cheap retry
+                return $s->_soap_request($uri, $headers, $content, $cb,
+                                         $attempt)
+                    if !$body;
                 my $xml = $s->_parse_xml($body);
                 $s->_del_soap_request($uri);
                 return $cb->($xml)
                     if $hdr->{Status} =~ /^2/
                         && !defined $xml->{'S:Fault'};
-
-                #dd $hdr;
-                #dd $xml;
                 $s->_trigger_error(
                        $xml->{'soap:Body'}{'soap:Fault'}{'soap:Reason'}
                            {'soap:Text'}{'content'}
@@ -1180,10 +1182,8 @@ sub _parse_xml {
     my ($s, $data) = @_;
     state $xml_twig //= XML::Twig->new();
     my $xml = {};
-    use Carp;
 
-=begin comment Carp::confess('...') if ! length $data ;
-=cut
+    # Carp::confess('...') if ! length $data ;
     try {
         $xml_twig->parse($data);
         $xml = $xml_twig->simplify(keyattr => [qw[type id value]]);
